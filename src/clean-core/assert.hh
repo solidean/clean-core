@@ -65,6 +65,18 @@
 #define CC_ASSERT(cond, msg, ...) CC_IMPL_ASSERT(cond, msg, ##__VA_ARGS__)
 
 // =========================================================================================================
+// CC_ASSERT_ALWAYS - Always-active assertion
+//
+// Like CC_ASSERT but remains active in all build configurations, including release builds.
+// Use this for critical invariants that must always be checked, even in production.
+//
+// Usage:
+//   CC_ASSERT_ALWAYS(critical_ptr != nullptr, "critical invariant violated");
+//   CC_ASSERT_ALWAYS(size <= MAX_SIZE, "exceeded absolute size limit: {}", size);
+//
+#define CC_ASSERT_ALWAYS(cond, msg, ...) CC_IMPL_ASSERT_ALWAYS(cond, msg, ##__VA_ARGS__)
+
+// =========================================================================================================
 // CC_DEBUG_BREAK - Conditional debugger breakpoint
 //
 // Triggers a debugger break if a debugger is attached, otherwise does nothing.
@@ -158,11 +170,8 @@ extern "C" int raise(int) noexcept;
 
 #endif
 
-// Assert implementation - enabled in debug/relwithdebinfo, optionally in release
-
-#if defined(CC_DEBUG) || defined(CC_RELWITHDEBINFO) || defined(CC_ENABLE_ASSERT_IN_RELEASE)
-
-#define CC_IMPL_ASSERT(cond, msg, ...)                                                            \
+// CC_ASSERT_ALWAYS implementation - always enabled regardless of build configuration
+#define CC_IMPL_ASSERT_ALWAYS(cond, msg, ...)                                                     \
     do                                                                                            \
     {                                                                                             \
         if CC_CONDITION_UNLIKELY (!(cond))                                                        \
@@ -172,6 +181,13 @@ extern "C" int raise(int) noexcept;
             CC_BREAK_AND_ABORT();                                                                 \
         }                                                                                         \
     } while (false)
+
+// Assert implementation - enabled in debug/relwithdebinfo, optionally in release
+
+#if defined(CC_DEBUG) || defined(CC_RELWITHDEBINFO) || defined(CC_ENABLE_ASSERT_IN_RELEASE)
+
+// Delegate to CC_IMPL_ASSERT_ALWAYS when assertions are enabled
+#define CC_IMPL_ASSERT(cond, msg, ...) CC_IMPL_ASSERT_ALWAYS(cond, msg, ##__VA_ARGS__)
 
 #else
 

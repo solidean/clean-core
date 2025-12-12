@@ -18,6 +18,7 @@ target_sources(clean-core
     BASE_DIRS "${CMAKE_CURRENT_SOURCE_DIR}/src"
     FILES
     src/clean-core/assert.hh
+    src/clean-core/assert-handler.hh
     src/clean-core/fwd.hh
 )
 
@@ -35,9 +36,16 @@ target_include_directories(clean-core
     "${CMAKE_CURRENT_SOURCE_DIR}/src"
 )
 
+# Enable conforming preprocessor for MSVC
+target_compile_options(clean-core
+    PUBLIC
+    $<$<CXX_COMPILER_ID:MSVC>:/Zc:preprocessor>
+)
+
 # Test executable
 add_executable(clean-core-test
     tests/main.cc
+    tests/assert-test.cc
     tests/macros-test.cc
 )
 

@@ -1,8 +1,12 @@
 #include "assert.hh"
 
+#include <clean-core/assert-handler.hh>
+
 #include <cstdio>
 #include <cstdlib>
 #include <print>
+#include <stacktrace>
+#include <vector>
 
 #ifdef CC_COMPILER_MSVC
 extern "C" __declspec(dllimport) int __stdcall IsDebuggerPresent() noexcept;
@@ -14,21 +18,72 @@ extern "C" __declspec(dllimport) int __stdcall IsDebuggerPresent() noexcept;
 #include <cstring>
 #endif
 
-namespace cc::impl
+namespace
 {
-CC_COLD_FUNC void handle_assert_failure(std::string_view expression,
-                                        std::string const& message,
-                                        std::source_location location)
+// Global stack of assertion handlers
+// NOTE: This is not thread-safe and must be externally synchronized
+std::vector<std::move_only_function<void(cc::impl::assertion_info const&)>> g_assertion_handlers;
+
+// Default assertion handler implementation
+void default_assert_handler(cc::impl::assertion_info const& info)
 {
-    std::println(stderr, "Assertion failed: {}", expression);
-    std::println(stderr, "  Message: {}", message);
-    std::println(stderr, "  Location: {}:{}:{} ({})", location.file_name(), location.line(), location.column(),
-                 location.function_name());
+    std::println(stderr, "Assertion failed: {}", info.expression);
+    std::println(stderr, "  Message: {}", info.message);
+    std::println(stderr, "  Location: {}:{}:{} ({})", info.location.file_name(), info.location.line(),
+                 info.location.column(), info.location.function_name());
+
+    // Print stacktrace
+    std::println(stderr, "\nStacktrace:");
+    auto trace = std::stacktrace::current();
+    std::println(stderr, "{}", std::to_string(trace));
+}
+} // namespace
+
+void cc::impl::push_assertion_handler(std::move_only_function<void(assertion_info const&)> handler)
+{
+    g_assertion_handlers.push_back(std::move(handler));
+}
+
+void cc::impl::pop_assertion_handler()
+{
+    if (!g_assertion_handlers.empty())
+        g_assertion_handlers.pop_back();
+}
+
+cc::impl::scoped_assertion_handler::scoped_assertion_handler(std::move_only_function<void(assertion_info const&)> handler)
+{
+    push_assertion_handler(std::move(handler));
+}
+
+cc::impl::scoped_assertion_handler::~scoped_assertion_handler()
+{
+    pop_assertion_handler();
+}
+
+CC_COLD_FUNC void cc::impl::handle_assert_failure(std::string_view expression,
+                                                  std::string message,
+                                                  std::source_location location)
+{
+    assertion_info const info{
+        .expression = std::string(expression),
+        .message = std::move(message),
+        .location = location,
+    };
+
+    // Call the topmost handler if available, otherwise use default handler
+    if (!g_assertion_handlers.empty())
+    {
+        g_assertion_handlers.back()(info);
+    }
+    else
+    {
+        default_assert_handler(info);
+    }
 
     // no abort here, it's outside
 }
 
-bool is_debugger_connected() noexcept
+bool cc::impl::is_debugger_connected() noexcept
 {
 #ifdef CC_COMPILER_MSVC
     return ::IsDebuggerPresent() != 0;
@@ -73,8 +128,7 @@ bool is_debugger_connected() noexcept
 #endif
 }
 
-[[noreturn]] void perform_abort() noexcept
+[[noreturn]] void cc::impl::perform_abort() noexcept
 {
     std::abort();
 }
-} // namespace cc::impl
