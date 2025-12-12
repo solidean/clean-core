@@ -6,7 +6,7 @@ project(clean-core LANGUAGES CXX)
 
 # Define the library and its sources
 add_library(clean-core
-    src/clean-core/dummy.cc
+    src/clean-core/assert.cc
 )
 
 # Public headers live co-located in src/ for better editor experience.
@@ -17,7 +17,7 @@ target_sources(clean-core
     TYPE HEADERS
     BASE_DIRS "${CMAKE_CURRENT_SOURCE_DIR}/src"
     FILES
-    src/clean-core/dummy.hh
+    src/clean-core/assert.hh
     src/clean-core/fwd.hh
 )
 
@@ -33,4 +33,16 @@ target_compile_features(clean-core
 target_include_directories(clean-core
     PUBLIC
     "${CMAKE_CURRENT_SOURCE_DIR}/src"
+)
+
+# Test executable
+add_executable(clean-core-test
+    tests/main.cc
+    tests/macros-test.cc
+)
+
+target_link_libraries(clean-core-test
+    PRIVATE
+    clean-core
+    nexus
 )
