@@ -82,7 +82,7 @@ IncludeBlocks: Regroup
 IncludeCategories:
   - Regex:  '^"'
     Priority: 1
-  - Regex:  '^<@PROJECT_SLUG@/'
+  - Regex:  '^<clean-core/'
     Priority: 2
   - Regex: '^<.*\.(h|hh|hpp|hxx)>'  # <foo/bar/file.h>, <x.hh>, ...
     Priority: 3
