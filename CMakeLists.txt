@@ -28,6 +28,7 @@ target_sources(clean-core
     src/clean-core/to_debug_string.hh
     src/clean-core/string.hh
     src/clean-core/string_view.hh
+    src/clean-core/utility.hh
 )
 
 # Libraries should not set a global C++ standard here.
@@ -61,6 +62,7 @@ add_executable(clean-core-test
     tests/main.cc
     tests/assert-test.cc
     tests/macros-test.cc
+    tests/utility-test.cc
 )
 
 target_link_libraries(clean-core-test
