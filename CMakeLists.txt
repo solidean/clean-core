@@ -20,6 +20,7 @@ target_sources(clean-core
     src/clean-core/assert.hh
     src/clean-core/assert-handler.hh
     src/clean-core/fwd.hh
+    src/clean-core/utility.hh
 )
 
 # Libraries should not set a global C++ standard here.
@@ -47,6 +48,7 @@ add_executable(clean-core-test
     tests/main.cc
     tests/assert-test.cc
     tests/macros-test.cc
+    tests/utility-test.cc
 )
 
 target_link_libraries(clean-core-test

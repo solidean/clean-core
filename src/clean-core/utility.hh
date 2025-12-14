@@ -38,6 +38,12 @@
 //   is_aligned(value, alignment)     - check if aligned at boundary (power of 2)
 //
 
+// TODO
+// - overloaded
+// - is_memcopyable
+// - is/has things
+// - force inline here a lot!
+
 namespace cc
 {
 // =========================================================================================================
@@ -130,7 +136,12 @@ template <class T>
 ///   float normalized = cc::clamp(val, 0.0f, 1.0f);
 ///   cc::clamp(obj, min_obj, max_obj).foo();       // can call members on result
 template <class T>
-[[nodiscard]] constexpr T const& clamp(T const& v, T const& lo, T const& hi);
+[[nodiscard]] constexpr T const& clamp(T const& v, T const& lo, T const& hi)
+{
+    static_assert(requires { v < lo; }, "T must support operator<");
+    CC_ASSERT(!(hi < lo), "clamp: hi must be >= lo");
+    return (v < lo) ? lo : (hi < v) ? hi : v; // NOLINT
+}
 
 // =========================================================================================================
 // Wrapping arithmetic
@@ -357,5 +368,5 @@ constexpr void do_swap_impl(T& a, T& b)
 template <class T>
 constexpr void cc::impl::swap_fn::operator()(T& a, T& b) const
 {
-    _no_cc_namespace::do_swap_impl(a, b, 0);
+    _no_cc_namespace::do_swap_impl(a, b);
 }

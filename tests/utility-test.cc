@@ -1,0 +1,701 @@
+#include <clean-core/utility.hh>
+
+#include <clean-core/assert-handler.hh>
+#include <nexus/test.hh>
+
+#include <cstdint>
+
+// =========================================================================================================
+// Helper types for testing
+// =========================================================================================================
+
+// A simple box type with comparison for min/max/clamp testing
+struct Box
+{
+    int v;
+    bool operator<(Box const& rhs) const { return v < rhs.v; }
+};
+
+// Move-only type with tracking for move/exchange/swap tests
+struct MoveOnly
+{
+    int id;
+    inline static int move_ctor_count = 0;
+    inline static int move_assign_count = 0;
+
+    explicit MoveOnly(int i = 0) : id(i) {}
+    MoveOnly(MoveOnly const&) = delete;
+    MoveOnly& operator=(MoveOnly const&) = delete;
+    MoveOnly(MoveOnly&& other) noexcept : id(other.id)
+    {
+        other.id = -1;
+        ++move_ctor_count;
+    }
+    MoveOnly& operator=(MoveOnly&& other) noexcept
+    {
+        id = other.id;
+        other.id = -1;
+        ++move_assign_count;
+        return *this;
+    }
+
+    static void reset_counts()
+    {
+        move_ctor_count = 0;
+        move_assign_count = 0;
+    }
+};
+
+// Type with ADL swap for testing ADL-awareness
+namespace test_ns
+{
+struct AdlSwappable
+{
+    int value;
+    inline static int adl_swap_count = 0;
+
+    static void reset_count() { adl_swap_count = 0; }
+};
+
+void swap(AdlSwappable& a, AdlSwappable& b) noexcept
+{
+    ++AdlSwappable::adl_swap_count;
+    int const tmp = a.value;
+    a.value = b.value;
+    b.value = tmp;
+}
+} // namespace test_ns
+
+// Helper macro to test that expressions trigger assertions
+#define CHECK_ASSERTS(expr)                                                                  \
+    do                                                                                       \
+    {                                                                                        \
+        bool assertion_triggered = false;                                                   \
+        {                                                                                    \
+            auto handler = cc::impl::scoped_assertion_handler(                              \
+                [&](cc::impl::assertion_info const&)                                        \
+                {                                                                            \
+                    assertion_triggered = true;                                             \
+                    throw 0;                                                                 \
+                });                                                                          \
+            try                                                                              \
+            {                                                                                \
+                (void)(expr);                                                                \
+            }                                                                                \
+            catch (int)                                                                      \
+            {                                                                                \
+            }                                                                                \
+        }                                                                                    \
+        CHECK(assertion_triggered);                                                          \
+    } while (false)
+
+// =========================================================================================================
+// Move semantics tests
+// =========================================================================================================
+
+TEST("utility - move returns T&& and selects rvalue overload")
+{
+    // Compile-time check: move returns rvalue reference
+    int x = 5;
+    static_assert(std::is_same_v<decltype(cc::move(x)), int&&>);
+
+    // Test that move selects rvalue overload
+    MoveOnly::reset_counts();
+    MoveOnly mo(42);
+    MoveOnly mo2(cc::move(mo)); // should call move ctor
+    CHECK(mo2.id == 42);
+    CHECK(mo.id == -1);
+    CHECK(MoveOnly::move_ctor_count == 1);
+}
+
+TEST("utility - forward preserves value categories")
+{
+    struct Overloaded
+    {
+        static int call_lvalue(int&) { return 1; }
+        static int call_rvalue(int&&) { return 2; }
+        static int call_const_lvalue(int const&) { return 3; }
+    };
+
+    auto wrapper = [](auto&& arg) -> int
+    {
+        using T = decltype(arg);
+        if constexpr (std::is_lvalue_reference_v<T>)
+        {
+            if constexpr (std::is_const_v<std::remove_reference_t<T>>)
+                return Overloaded::call_const_lvalue(cc::forward<T>(arg));
+            else
+                return Overloaded::call_lvalue(cc::forward<T>(arg));
+        }
+        else
+        {
+            return Overloaded::call_rvalue(cc::forward<T>(arg));
+        }
+    };
+
+    int lval = 5;
+    int const const_lval = 6;
+
+    CHECK(wrapper(lval) == 1);        // lvalue -> lvalue overload
+    CHECK(wrapper(10) == 2);          // rvalue -> rvalue overload
+    CHECK(wrapper(const_lval) == 3); // const lvalue -> const overload
+
+    // Compile-time check
+    static_assert(std::is_same_v<decltype(cc::forward<int&>(lval)), int&>);
+    static_assert(std::is_same_v<decltype(cc::forward<int&&>(10)), int&&>);
+}
+
+TEST("utility - exchange replaces value and returns old")
+{
+    SECTION("integer exchange")
+    {
+        int x = 5;
+        int old = cc::exchange(x, 9);
+        CHECK(old == 5);
+        CHECK(x == 9);
+    }
+
+    SECTION("move-only exchange")
+    {
+        MoveOnly::reset_counts();
+        MoveOnly a(10);
+        MoveOnly b(20);
+        MoveOnly old = cc::exchange(a, cc::move(b));
+        CHECK(old.id == 10);
+        CHECK(a.id == 20);
+        CHECK(b.id == -1); // b was moved
+    }
+
+    SECTION("exchange with convertible type")
+    {
+        int x = 100;
+        int old = cc::exchange(x, 200);
+        CHECK(old == 100);
+        CHECK(x == 200);
+    }
+
+    SECTION("self exchange")
+    {
+        int x = 42;
+        int old = cc::exchange(x, x);
+        CHECK(old == 42);
+        CHECK(x == 42);
+    }
+}
+
+// =========================================================================================================
+// Comparison and clamping tests
+// =========================================================================================================
+
+TEST("utility - max/min return references and handle equality")
+{
+    SECTION("max with distinct values")
+    {
+        Box a{10}, b{20};
+        Box const& result = cc::max(a, b);
+        CHECK(&result == &b); // returns ref to larger
+        CHECK(result.v == 20);
+    }
+
+    SECTION("max with equal values returns b")
+    {
+        Box a{15}, b{15};
+        Box const& result = cc::max(a, b);
+        CHECK(&result == &b); // when equal, max returns b
+    }
+
+    SECTION("min with distinct values")
+    {
+        Box a{10}, b{20};
+        Box const& result = cc::min(a, b);
+        CHECK(&result == &a); // returns ref to smaller
+        CHECK(result.v == 10);
+    }
+
+    SECTION("min with equal values returns a")
+    {
+        Box a{15}, b{15};
+        Box const& result = cc::min(a, b);
+        CHECK(&result == &a); // when equal, min returns a
+    }
+}
+
+TEST("utility - clamp returns correct reference")
+{
+    SECTION("value in middle")
+    {
+        Box v{15}, lo{10}, hi{20};
+        Box const& result = cc::clamp(v, lo, hi);
+        CHECK(&result == &v); // returns v when in range
+        CHECK(result.v == 15);
+    }
+
+    SECTION("value below range")
+    {
+        Box v{5}, lo{10}, hi{20};
+        Box const& result = cc::clamp(v, lo, hi);
+        CHECK(&result == &lo); // returns lo when below
+        CHECK(result.v == 10);
+    }
+
+    SECTION("value above range")
+    {
+        Box v{25}, lo{10}, hi{20};
+        Box const& result = cc::clamp(v, lo, hi);
+        CHECK(&result == &hi); // returns hi when above
+        CHECK(result.v == 20);
+    }
+
+    SECTION("value equals lo")
+    {
+        Box v{10}, lo{10}, hi{20};
+        Box const& result = cc::clamp(v, lo, hi);
+        CHECK(&result == &v); // returns v when equal to boundary
+    }
+
+    SECTION("value equals hi")
+    {
+        Box v{20}, lo{10}, hi{20};
+        Box const& result = cc::clamp(v, lo, hi);
+        CHECK(&result == &v); // returns v when equal to boundary
+    }
+
+    SECTION("lo equals hi")
+    {
+        Box v{15}, boundary{10};
+        Box const& result = cc::clamp(v, boundary, boundary);
+        CHECK(&result == &boundary); // returns boundary when lo==hi
+    }
+}
+
+// =========================================================================================================
+// Wrapping arithmetic tests
+// =========================================================================================================
+
+TEST("utility - wrapped_increment wraps correctly")
+{
+    SECTION("max=1 wraps immediately")
+    {
+        CHECK(cc::wrapped_increment(0, 1) == 0);
+    }
+
+    SECTION("max=3 ring behavior")
+    {
+        CHECK(cc::wrapped_increment(0, 3) == 1);
+        CHECK(cc::wrapped_increment(1, 3) == 2);
+        CHECK(cc::wrapped_increment(2, 3) == 0); // wraps
+    }
+
+    SECTION("result always in range")
+    {
+        for (int i = 0; i < 10; ++i)
+        {
+            int result = cc::wrapped_increment(i, 10);
+            CHECK(result >= 0);
+            CHECK(result < 10);
+        }
+    }
+
+    SECTION("unsigned types")
+    {
+        unsigned u = 5;
+        CHECK(cc::wrapped_increment(u, 6u) == 0u);
+        CHECK(cc::wrapped_increment(u, 7u) == 6u);
+    }
+}
+
+TEST("utility - wrapped_decrement wraps correctly")
+{
+    SECTION("max=1 wraps immediately")
+    {
+        CHECK(cc::wrapped_decrement(0, 1) == 0);
+    }
+
+    SECTION("max=3 ring behavior")
+    {
+        CHECK(cc::wrapped_decrement(2, 3) == 1);
+        CHECK(cc::wrapped_decrement(1, 3) == 0);
+        CHECK(cc::wrapped_decrement(0, 3) == 2); // wraps
+    }
+
+    SECTION("result always in range")
+    {
+        for (int i = 0; i < 10; ++i)
+        {
+            int result = cc::wrapped_decrement(i, 10);
+            CHECK(result >= 0);
+            CHECK(result < 10);
+        }
+    }
+
+    SECTION("unsigned types")
+    {
+        unsigned u = 0;
+        CHECK(cc::wrapped_decrement(u, 6u) == 5u);
+    }
+}
+
+// =========================================================================================================
+// Integer division tests
+// =========================================================================================================
+
+TEST("utility - int_div_round_up rounds up correctly")
+{
+    SECTION("nom < denom")
+    {
+        CHECK(cc::int_div_round_up(1, 3) == 1);
+        CHECK(cc::int_div_round_up(2, 3) == 1);
+    }
+
+    SECTION("exact multiples")
+    {
+        CHECK(cc::int_div_round_up(9, 3) == 3);
+        CHECK(cc::int_div_round_up(12, 3) == 4);
+    }
+
+    SECTION("just over multiple")
+    {
+        CHECK(cc::int_div_round_up(10, 3) == 4);
+        CHECK(cc::int_div_round_up(13, 3) == 5);
+    }
+
+    SECTION("denom = 1")
+    {
+        CHECK(cc::int_div_round_up(5, 1) == 5);
+        CHECK(cc::int_div_round_up(100, 1) == 100);
+    }
+
+    SECTION("overflow avoidance with u64")
+    {
+        // max_u64 / 2 rounds up
+        uint64_t const max_val = UINT64_MAX;
+        uint64_t const result = cc::int_div_round_up(max_val, uint64_t(2));
+        // UINT64_MAX / 2 = 9223372036854775807.5, rounds up to 9223372036854775808
+        CHECK(result == (max_val / 2) + 1);
+    }
+}
+
+TEST("utility - int_round_up_to_multiple rounds to next multiple")
+{
+    SECTION("val == 0")
+    {
+        CHECK(cc::int_round_up_to_multiple(0, 1) == 0);
+        CHECK(cc::int_round_up_to_multiple(0, 2) == 0);
+        CHECK(cc::int_round_up_to_multiple(0, 10) == 0);
+    }
+
+    SECTION("multiple == 1")
+    {
+        CHECK(cc::int_round_up_to_multiple(5, 1) == 5);
+        CHECK(cc::int_round_up_to_multiple(100, 1) == 100);
+    }
+
+    SECTION("already a multiple")
+    {
+        CHECK(cc::int_round_up_to_multiple(30, 10) == 30);
+        CHECK(cc::int_round_up_to_multiple(16, 8) == 16);
+    }
+
+    SECTION("round up")
+    {
+        CHECK(cc::int_round_up_to_multiple(23, 10) == 30);
+        CHECK(cc::int_round_up_to_multiple(17, 8) == 24);
+        CHECK(cc::int_round_up_to_multiple(1, 2) == 2);
+    }
+
+    SECTION("larger values")
+    {
+        CHECK(cc::int_round_up_to_multiple(1000, 256) == 1024);
+        CHECK(cc::int_round_up_to_multiple(999, 256) == 1024);
+    }
+}
+
+// =========================================================================================================
+// Swap tests
+// =========================================================================================================
+
+TEST("utility - swap respects custom ADL swap")
+{
+    test_ns::AdlSwappable::reset_count();
+    test_ns::AdlSwappable a{10}, b{20};
+
+    cc::swap(a, b);
+
+    CHECK(test_ns::AdlSwappable::adl_swap_count == 1); // ADL swap was called
+    CHECK(a.value == 20);
+    CHECK(b.value == 10);
+}
+
+TEST("utility - swap works with move-only types")
+{
+    MoveOnly::reset_counts();
+    MoveOnly a(10), b(20);
+
+    cc::swap(a, b);
+
+    CHECK(a.id == 20);
+    CHECK(b.id == 10);
+    // At least some moves happened (not pinning exact count for flexibility)
+    CHECK(MoveOnly::move_ctor_count + MoveOnly::move_assign_count > 0);
+    // But no copies (move-only prevents this)
+}
+
+TEST("utility - swap_by_move bypasses custom swap")
+{
+    test_ns::AdlSwappable::reset_count();
+    test_ns::AdlSwappable a{10}, b{20};
+
+    cc::swap_by_move(a, b);
+
+    CHECK(test_ns::AdlSwappable::adl_swap_count == 0); // ADL swap was NOT called
+    CHECK(a.value == 20);
+    CHECK(b.value == 10);
+}
+
+TEST("utility - swap_by_move works with move-only types")
+{
+    MoveOnly::reset_counts();
+    MoveOnly a(30), b(40);
+
+    cc::swap_by_move(a, b);
+
+    CHECK(a.id == 40);
+    CHECK(b.id == 30);
+}
+
+// =========================================================================================================
+// Alignment tests
+// =========================================================================================================
+
+TEST("utility - is_power_of_two truth table")
+{
+    SECTION("powers of two")
+    {
+        CHECK(cc::is_power_of_two(1));
+        CHECK(cc::is_power_of_two(2));
+        CHECK(cc::is_power_of_two(4));
+        CHECK(cc::is_power_of_two(8));
+        CHECK(cc::is_power_of_two(16));
+        CHECK(cc::is_power_of_two(1024));
+    }
+
+    SECTION("non-powers of two")
+    {
+        CHECK(!cc::is_power_of_two(3));
+        CHECK(!cc::is_power_of_two(5));
+        CHECK(!cc::is_power_of_two(6));
+        CHECK(!cc::is_power_of_two(7));
+        CHECK(!cc::is_power_of_two(9));
+        CHECK(!cc::is_power_of_two(12));
+        CHECK(!cc::is_power_of_two(100));
+    }
+
+    SECTION("signed types")
+    {
+        int s = 16;
+        CHECK(cc::is_power_of_two(s));
+        s = 17;
+        CHECK(!cc::is_power_of_two(s));
+    }
+}
+
+TEST("utility - align_up_masked numeric behavior")
+{
+    constexpr int mask15 = 15; // alignment 16
+
+    CHECK(cc::align_up_masked(0, mask15) == 0);
+    CHECK(cc::align_up_masked(1, mask15) == 16);
+    CHECK(cc::align_up_masked(15, mask15) == 16);
+    CHECK(cc::align_up_masked(16, mask15) == 16);
+    CHECK(cc::align_up_masked(17, mask15) == 32);
+    CHECK(cc::align_up_masked(300, mask15) == 304);
+
+    SECTION("mask=0 (alignment 1)")
+    {
+        CHECK(cc::align_up_masked(42, 0) == 42);
+        CHECK(cc::align_up_masked(99, 0) == 99);
+    }
+}
+
+TEST("utility - align_down_masked numeric behavior")
+{
+    constexpr int mask15 = 15; // alignment 16
+
+    CHECK(cc::align_down_masked(0, mask15) == 0);
+    CHECK(cc::align_down_masked(1, mask15) == 0);
+    CHECK(cc::align_down_masked(15, mask15) == 0);
+    CHECK(cc::align_down_masked(16, mask15) == 16);
+    CHECK(cc::align_down_masked(17, mask15) == 16);
+    CHECK(cc::align_down_masked(300, mask15) == 288);
+
+    SECTION("mask=0 (alignment 1)")
+    {
+        CHECK(cc::align_down_masked(42, 0) == 42);
+        CHECK(cc::align_down_masked(99, 0) == 99);
+    }
+}
+
+TEST("utility - align_up/down equivalence to masked versions")
+{
+    constexpr int test_values[] = {0, 1, 7, 8, 9, 15, 16, 17, 100, 255, 256, 300, 1000};
+    constexpr int alignments[] = {1, 2, 8, 16, 256};
+
+    for (int val : test_values)
+    {
+        for (int align : alignments)
+        {
+            CHECK(cc::align_up(val, align) == cc::align_up_masked(val, align - 1));
+            CHECK(cc::align_down(val, align) == cc::align_down_masked(val, align - 1));
+        }
+    }
+
+    SECTION("already aligned returns unchanged")
+    {
+        CHECK(cc::align_up(16, 16) == 16);
+        CHECK(cc::align_down(16, 16) == 16);
+        CHECK(cc::align_up(256, 256) == 256);
+        CHECK(cc::align_down(256, 256) == 256);
+    }
+
+    SECTION("alignment 1 returns unchanged")
+    {
+        CHECK(cc::align_up(42, 1) == 42);
+        CHECK(cc::align_down(42, 1) == 42);
+        CHECK(cc::align_up(999, 1) == 999);
+        CHECK(cc::align_down(999, 1) == 999);
+    }
+}
+
+TEST("utility - is_aligned correctness")
+{
+    SECTION("alignment=1 always true")
+    {
+        CHECK(cc::is_aligned(0, 1));
+        CHECK(cc::is_aligned(1, 1));
+        CHECK(cc::is_aligned(42, 1));
+        CHECK(cc::is_aligned(999, 1));
+    }
+
+    SECTION("alignment=16")
+    {
+        CHECK(cc::is_aligned(0, 16));
+        CHECK(cc::is_aligned(16, 16));
+        CHECK(cc::is_aligned(32, 16));
+        CHECK(cc::is_aligned(48, 16));
+
+        CHECK(!cc::is_aligned(1, 16));
+        CHECK(!cc::is_aligned(15, 16));
+        CHECK(!cc::is_aligned(17, 16));
+        CHECK(!cc::is_aligned(31, 16));
+    }
+
+    SECTION("consistency with align_up/down")
+    {
+        constexpr int test_values[] = {0, 1, 5, 15, 16, 17, 100, 255, 256, 300};
+        constexpr int alignments[] = {1, 2, 8, 16, 256};
+
+        for (int val : test_values)
+        {
+            for (int align : alignments)
+            {
+                int aligned_up = cc::align_up(val, align);
+                int aligned_down = cc::align_down(val, align);
+                CHECK(cc::is_aligned(aligned_up, align));
+                CHECK(cc::is_aligned(aligned_down, align));
+            }
+        }
+    }
+}
+
+// =========================================================================================================
+// Precondition failure (death) tests
+// =========================================================================================================
+
+TEST("utility - precondition failures trigger assertions")
+{
+    SECTION("wrapped_increment: max == 0")
+    {
+        CHECK_ASSERTS(cc::wrapped_increment(0, 0));
+    }
+
+    SECTION("wrapped_increment: max < 0")
+    {
+        CHECK_ASSERTS(cc::wrapped_increment(0, -1));
+    }
+
+    SECTION("wrapped_decrement: max == 0")
+    {
+        CHECK_ASSERTS(cc::wrapped_decrement(0, 0));
+    }
+
+    SECTION("wrapped_decrement: max < 0")
+    {
+        CHECK_ASSERTS(cc::wrapped_decrement(0, -5));
+    }
+
+    SECTION("int_div_round_up: nom <= 0")
+    {
+        CHECK_ASSERTS(cc::int_div_round_up(0, 5));
+        CHECK_ASSERTS(cc::int_div_round_up(-1, 5));
+    }
+
+    SECTION("int_div_round_up: denom <= 0")
+    {
+        CHECK_ASSERTS(cc::int_div_round_up(5, 0));
+        CHECK_ASSERTS(cc::int_div_round_up(5, -1));
+    }
+
+    SECTION("int_round_up_to_multiple: multiple <= 0")
+    {
+        CHECK_ASSERTS(cc::int_round_up_to_multiple(10, 0));
+        CHECK_ASSERTS(cc::int_round_up_to_multiple(10, -5));
+    }
+
+    SECTION("is_power_of_two: value <= 0")
+    {
+        CHECK_ASSERTS(cc::is_power_of_two(0));
+        CHECK_ASSERTS(cc::is_power_of_two(-1));
+        CHECK_ASSERTS(cc::is_power_of_two(-16));
+    }
+
+    SECTION("align_up: alignment <= 0")
+    {
+        CHECK_ASSERTS(cc::align_up(100, 0));
+        CHECK_ASSERTS(cc::align_up(100, -16));
+    }
+
+    SECTION("align_up: alignment not power of two")
+    {
+        CHECK_ASSERTS(cc::align_up(100, 3));
+        CHECK_ASSERTS(cc::align_up(100, 12));
+    }
+
+    SECTION("align_down: alignment <= 0")
+    {
+        CHECK_ASSERTS(cc::align_down(100, 0));
+        CHECK_ASSERTS(cc::align_down(100, -8));
+    }
+
+    SECTION("align_down: alignment not power of two")
+    {
+        CHECK_ASSERTS(cc::align_down(100, 3));
+        CHECK_ASSERTS(cc::align_down(100, 12));
+    }
+
+    SECTION("is_aligned: alignment <= 0")
+    {
+        CHECK_ASSERTS(cc::is_aligned(100, 0));
+        CHECK_ASSERTS(cc::is_aligned(100, -4));
+    }
+
+    SECTION("is_aligned: alignment not power of two")
+    {
+        CHECK_ASSERTS(cc::is_aligned(100, 3));
+        CHECK_ASSERTS(cc::is_aligned(100, 12));
+    }
+
+    SECTION("clamp: hi < lo")
+    {
+        CHECK_ASSERTS(cc::clamp(5, 10, 0));
+    }
+}
