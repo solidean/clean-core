@@ -1,6 +1,7 @@
 #pragma once
 
 #include <clean-core/assert.hh>
+#include <clean-core/string_view.hh>
 #include <clean-core/to_string.hh>
 
 #include <type_traits>
@@ -18,11 +19,21 @@ struct debug_string_config
 // Best-effort, non-semantic, and intended only for diagnostics.
 //
 // Strategy (in order):
+//   - String-likes: wrap in double quotes "..." (never empty output)
+//   - char: wrap in single quotes '...' with escape sequences for control/non-printable chars
+//     (printables and spaces show as-is, control chars like \n, \t are escaped,
+//      other non-printables show as \xHH hex codes)
 //   - Use to_string(v) if available
 //   - Use v.to_string() if available
 //   - For collections, recursively format elements as [v0, v1, ...]
 //   - For tuple-likes, recursively format elements as (v0, v1, ...)
 //   - Otherwise emit raw memory dump
+//
+// Design rationale:
+//   - String-likes and chars are wrapped in quotes to ensure non-empty output
+//     (e.g., empty string shows as "" instead of nothing)
+//   - Chars use escape sequences to make control/special characters visible
+//     (e.g., newline shows as '\n' instead of an actual line break)
 //
 // No stability, completeness, or user-facing guarantees.
 // Output may change, be lossy, or depend on build/configuration.
@@ -61,13 +72,53 @@ void to_debug_string_append_tuple(string& s, T const& v, debug_string_config con
 template <class T>
 [[nodiscard]] string to_debug_string(T const& v, debug_string_config const& cfg)
 {
-    if constexpr (requires { to_string(v); })
+    if constexpr (requires { cc::string_view(v); })
     {
-        return string(to_string(v));
+        auto s = cc::string("\"");
+        s += cc::string_view(v);
+        s += '\"';
+        return s;
+    }
+    else if constexpr (std::is_same_v<T, char>)
+    {
+        auto s = cc::string("'");
+
+        // Escape control and non-printable characters
+        if (v == '\0')
+            s += "\\0";
+        else if (v == '\n')
+            s += "\\n";
+        else if (v == '\r')
+            s += "\\r";
+        else if (v == '\t')
+            s += "\\t";
+        else if (v == '\v')
+            s += "\\v";
+        else if (v == '\f')
+            s += "\\f";
+        else if (v == '\b')
+            s += "\\b";
+        else if (v == '\a')
+            s += "\\a";
+        else if (v == '\\')
+            s += "\\\\";
+        else if (v == '\'')
+            s += "\\'";
+        else if (v < 32 || v == 127) // Other control characters
+            s += std::format("\\x{:02X}", static_cast<unsigned char>(v));
+        else // Printable characters (including space)
+            s += v;
+
+        s += '\'';
+        return s;
+    }
+    else if constexpr (requires { to_string(v); })
+    {
+        return cc::string(to_string(v));
     }
     else if constexpr (requires { v.to_string(); })
     {
-        return string(v.to_string());
+        return cc::string(v.to_string());
     }
     else if constexpr (requires {
                            std::begin(v);

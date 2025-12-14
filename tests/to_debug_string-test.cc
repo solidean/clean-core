@@ -127,7 +127,8 @@ TEST("to_debug_string - container with strings")
     std::vector<cc::string> strings = {"hello", "world"};
     auto result = cc::to_debug_string(strings);
 
-    CHECK(result == "[hello, world]");
+    // Strings are now wrapped in quotes
+    CHECK(result == "[\"hello\", \"world\"]");
 }
 
 TEST("to_debug_string - different container types")
@@ -170,6 +171,16 @@ TEST("to_debug_string - triple nested collections")
 TEST("to_debug_string - list of arrays")
 {
     std::list<std::array<int, 2>> hybrid;
+    hybrid.push_back({10, 20});
+    hybrid.push_back({30, 40});
+    auto result = cc::to_debug_string(hybrid);
+
+    CHECK(result == "[[10, 20], [30, 40]]");
+}
+
+TEST("to_debug_string - list of tuples")
+{
+    std::list<std::tuple<int, int>> hybrid;
     hybrid.push_back({10, 20});
     hybrid.push_back({30, 40});
     auto result = cc::to_debug_string(hybrid);
@@ -221,10 +232,18 @@ TEST("to_debug_string - multi-element tuple")
     CHECK(result == "(1, 2, 3)");
 }
 
-TEST("to_debug_string - std::array as tuple-like")
+TEST("to_debug_string - std::array as collection")
 {
     std::array<int, 3> arr = {5, 10, 15};
     auto result = cc::to_debug_string(arr);
+
+    CHECK(result == "[5, 10, 15]");
+}
+
+TEST("to_debug_string - tuple with same size as array")
+{
+    std::tuple<int, int, int> tup{5, 10, 15};
+    auto result = cc::to_debug_string(tup);
 
     CHECK(result == "(5, 10, 15)");
 }
@@ -246,8 +265,8 @@ TEST("to_debug_string - heterogeneous tuple with different dispatch paths")
     std::tuple<int, cc::string, std::vector<int>> mixed{42, "hello", {1, 2, 3}};
     auto result = cc::to_debug_string(mixed);
 
-    // int � to_string, string � to_string, vector � iterable
-    CHECK(result == "(42, hello, [1, 2, 3])");
+    // int → to_string, string → wrapped in quotes, vector → iterable
+    CHECK(result == "(42, \"hello\", [1, 2, 3])");
 }
 
 TEST("to_debug_string - tuple with custom stringable type")
@@ -423,7 +442,8 @@ TEST("to_debug_string - vector of tuples with mixed types")
 
     auto result = cc::to_debug_string(mixed);
 
-    CHECK(result == "[(1, first), (2, second), (3, third)]");
+    // Strings are now wrapped in quotes
+    CHECK(result == "[(1, \"first\"), (2, \"second\"), (3, \"third\")]");
 }
 
 TEST("to_debug_string - tuple containing vector and custom type")
@@ -432,7 +452,8 @@ TEST("to_debug_string - tuple containing vector and custom type")
 
     auto result = cc::to_debug_string(complex);
 
-    CHECK(result == "([10, 20, 30], 99_custom, end)");
+    // String is now wrapped in quotes
+    CHECK(result == "([10, 20, 30], 99_custom, \"end\")");
 }
 
 TEST("to_debug_string - vector of pairs")
@@ -443,7 +464,8 @@ TEST("to_debug_string - vector of pairs")
 
     auto result = cc::to_debug_string(pairs);
 
-    CHECK(result == "[(1, a), (2, b)]");
+    // Strings are now wrapped in quotes
+    CHECK(result == "[(1, \"a\"), (2, \"b\")]");
 }
 
 TEST("to_debug_string - complex nested heterogeneous structure")
@@ -454,7 +476,8 @@ TEST("to_debug_string - complex nested heterogeneous structure")
 
     auto result = cc::to_debug_string(complex);
 
-    CHECK(result == "[(1, [x, y], 5_custom), (2, [z], 10_custom)]");
+    // Strings are now wrapped in quotes
+    CHECK(result == "[(1, [\"x\", \"y\"], 5_custom), (2, [\"z\"], 10_custom)]");
 }
 
 // =========================================================================================================
@@ -466,16 +489,19 @@ TEST("to_debug_string - empty string via to_string")
     cc::string empty = "";
     auto result = cc::to_debug_string(empty);
 
-    CHECK(result == "");
+    // Empty strings are wrapped in quotes to ensure non-empty output
+    CHECK(result == "\"\"");
 }
 
-TEST("to_debug_string - zero-size struct")
+TEST("to_debug_string - empty struct")
 {
     EmptyStruct empty;
     auto result = cc::to_debug_string(empty);
 
-    // Zero bytes � just "0x" with no hex digits
-    CHECK(result == "0x");
+    // Empty structs are 1 byte in C++ (to ensure distinct addresses)
+    // Should produce "0x" followed by 2 hex digits representing the single byte
+    CHECK(result.starts_with("0x"));
+    CHECK(result.size() == 4); // "0x" + 2 hex digits
 }
 
 TEST("to_debug_string - vector of empty strings")
@@ -483,7 +509,8 @@ TEST("to_debug_string - vector of empty strings")
     std::vector<cc::string> empties = {"", "", ""};
     auto result = cc::to_debug_string(empties);
 
-    CHECK(result == "[, , ]");
+    // Empty strings now show as "" to make them visible
+    CHECK(result == "[\"\", \"\", \"\"]");
 }
 
 TEST("to_debug_string - tuple with empty string")
@@ -491,7 +518,8 @@ TEST("to_debug_string - tuple with empty string")
     std::tuple<int, cc::string, int> with_empty{1, "", 2};
     auto result = cc::to_debug_string(with_empty);
 
-    CHECK(result == "(1, , 2)");
+    // Empty string now shows as "" to make it visible
+    CHECK(result == "(1, \"\", 2)");
 }
 
 // =========================================================================================================
@@ -531,4 +559,176 @@ TEST("to_debug_string - default config uses max_length 100")
 
     // Should be truncated with default limit
     CHECK(result.ends_with(", ...]"));
+}
+
+// =========================================================================================================
+// String wrapping tests (ensures non-empty output)
+// =========================================================================================================
+
+TEST("to_debug_string - string wrapping ensures non-empty output")
+{
+    SECTION("empty string")
+    {
+        cc::string empty = "";
+        CHECK(cc::to_debug_string(empty) == "\"\"");
+    }
+
+    SECTION("single space")
+    {
+        cc::string space = " ";
+        CHECK(cc::to_debug_string(space) == "\" \"");
+    }
+
+    SECTION("normal string")
+    {
+        cc::string normal = "test";
+        CHECK(cc::to_debug_string(normal) == "\"test\"");
+    }
+
+    SECTION("string with quotes")
+    {
+        cc::string with_quotes = "hello \"world\"";
+        // Just verify it's wrapped; internal quote handling may vary
+        auto result = cc::to_debug_string(with_quotes);
+        CHECK(result.starts_with("\""));
+        CHECK(result.ends_with("\""));
+    }
+}
+
+// =========================================================================================================
+// Char escaping tests (ensures special chars are visible)
+// =========================================================================================================
+
+TEST("to_debug_string - char printables show as-is")
+{
+    SECTION("lowercase letter")
+    {
+        CHECK(cc::to_debug_string('a') == "'a'");
+    }
+
+    SECTION("uppercase letter")
+    {
+        CHECK(cc::to_debug_string('Z') == "'Z'");
+    }
+
+    SECTION("digit")
+    {
+        CHECK(cc::to_debug_string('5') == "'5'");
+    }
+
+    SECTION("space")
+    {
+        CHECK(cc::to_debug_string(' ') == "' '");
+    }
+
+    SECTION("punctuation")
+    {
+        CHECK(cc::to_debug_string('!') == "'!'");
+        CHECK(cc::to_debug_string(',') == "','");
+    }
+}
+
+TEST("to_debug_string - char common escapes")
+{
+    SECTION("newline")
+    {
+        CHECK(cc::to_debug_string('\n') == "'\\n'");
+    }
+
+    SECTION("tab")
+    {
+        CHECK(cc::to_debug_string('\t') == "'\\t'");
+    }
+
+    SECTION("carriage return")
+    {
+        CHECK(cc::to_debug_string('\r') == "'\\r'");
+    }
+
+    SECTION("null terminator")
+    {
+        CHECK(cc::to_debug_string('\0') == "'\\0'");
+    }
+
+    SECTION("backslash")
+    {
+        CHECK(cc::to_debug_string('\\') == "'\\\\'");
+    }
+
+    SECTION("single quote")
+    {
+        CHECK(cc::to_debug_string('\'') == "'\\''");
+    }
+
+    SECTION("vertical tab")
+    {
+        CHECK(cc::to_debug_string('\v') == "'\\v'");
+    }
+
+    SECTION("form feed")
+    {
+        CHECK(cc::to_debug_string('\f') == "'\\f'");
+    }
+
+    SECTION("backspace")
+    {
+        CHECK(cc::to_debug_string('\b') == "'\\b'");
+    }
+
+    SECTION("alert/bell")
+    {
+        CHECK(cc::to_debug_string('\a') == "'\\a'");
+    }
+}
+
+TEST("to_debug_string - char control characters as hex")
+{
+    SECTION("ASCII 1 (SOH)")
+    {
+        CHECK(cc::to_debug_string('\x01') == "'\\x01'");
+    }
+
+    SECTION("ASCII 2 (STX)")
+    {
+        CHECK(cc::to_debug_string('\x02') == "'\\x02'");
+    }
+
+    SECTION("ASCII 27 (ESC)")
+    {
+        CHECK(cc::to_debug_string('\x1B') == "'\\x1B'");
+    }
+
+    SECTION("ASCII 127 (DEL)")
+    {
+        CHECK(cc::to_debug_string('\x7F') == "'\\x7F'");
+    }
+
+    SECTION("ASCII 31 (US)")
+    {
+        CHECK(cc::to_debug_string('\x1F') == "'\\x1F'");
+    }
+}
+
+TEST("to_debug_string - char ensures visibility in collections")
+{
+    SECTION("list of chars with escapes")
+    {
+        std::list<char> chars = {'a', '\n', 'b', '\t', 'c'};
+        auto result = cc::to_debug_string(chars);
+        CHECK(result == "['a', '\\n', 'b', '\\t', 'c']");
+    }
+
+    SECTION("list with null char")
+    {
+        std::list<char> with_null = {'x', '\0', 'y'};
+        auto result = cc::to_debug_string(with_null);
+        CHECK(result == "['x', '\\0', 'y']");
+    }
+
+    SECTION("tuple with mixed chars")
+    {
+        std::tuple<char, char, char> mixed{' ', '\n', 'A'};
+        auto result = cc::to_debug_string(mixed);
+        CHECK(result == "(' ', '\\n', 'A')");
+    }
 }
