@@ -4,7 +4,7 @@
 
 #include <cstdio>
 #include <cstdlib>
-#include <print>
+#include <iostream>
 #include <stacktrace>
 #include <vector>
 
@@ -27,15 +27,15 @@ std::vector<std::move_only_function<void(cc::impl::assertion_info const&)>> g_as
 // Default assertion handler implementation
 void default_assert_handler(cc::impl::assertion_info const& info)
 {
-    std::println(stderr, "Assertion failed: {}", info.expression);
-    std::println(stderr, "  Message: {}", info.message);
-    std::println(stderr, "  Location: {}:{}:{} ({})", info.location.file_name(), info.location.line(),
-                 info.location.column(), info.location.function_name());
+    std::cerr << "Assertion failed: " << info.expression << '\n';
+    std::cerr << "  Message: " << info.message << '\n';
+    std::cerr << "  Location: " << info.location.file_name() << ':' << info.location.line() << ':'
+              << info.location.column() << " (" << info.location.function_name() << ")\n";
 
     // Print stacktrace
-    std::println(stderr, "\nStacktrace:");
+    std::cerr << "\nStacktrace:\n";
     auto trace = std::stacktrace::current();
-    std::println(stderr, "{}", std::to_string(trace));
+    std::cerr << std::to_string(trace) << '\n';
 }
 } // namespace
 

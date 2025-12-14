@@ -7,6 +7,9 @@ project(clean-core LANGUAGES CXX)
 # Define the library and its sources
 add_library(clean-core
     src/clean-core/assert.cc
+    src/clean-core/to_string.cc
+    src/clean-core/string.cc
+    src/clean-core/string_view.cc
 )
 
 # Public headers live co-located in src/ for better editor experience.
@@ -20,6 +23,11 @@ target_sources(clean-core
     src/clean-core/assert.hh
     src/clean-core/assert-handler.hh
     src/clean-core/fwd.hh
+    src/clean-core/macros.hh
+    src/clean-core/to_string.hh
+    src/clean-core/to_debug_string.hh
+    src/clean-core/string.hh
+    src/clean-core/string_view.hh
 )
 
 # Libraries should not set a global C++ standard here.
@@ -40,6 +48,12 @@ target_include_directories(clean-core
 target_compile_options(clean-core
     PUBLIC
     $<$<CXX_COMPILER_ID:MSVC>:/Zc:preprocessor>
+)
+
+# Link backtrace library for GCC/Clang (required for <stacktrace>)
+target_link_libraries(clean-core
+    PRIVATE
+    $<$<OR:$<CXX_COMPILER_ID:GNU>,$<CXX_COMPILER_ID:Clang>>:-lstdc++_libbacktrace>
 )
 
 # Test executable
