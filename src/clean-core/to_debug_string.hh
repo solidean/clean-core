@@ -86,7 +86,7 @@ template <class T>
 
             if (s.size() > 1)
                 s += ", ";
-            s += cc::to_debug_string(v, cfg);
+            s += cc::to_debug_string(e, cfg);
         }
         s += "]";
         return s;

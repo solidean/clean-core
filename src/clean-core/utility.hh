@@ -110,7 +110,7 @@ template <class T>
 [[nodiscard]] constexpr T const& max(T const& a, T const& b)
 {
     static_assert(requires { a < b; }, "T must support operator<");
-    return (a < b) ? b : a; // NOLINT(bugprone-return-const-ref-from-parameter) - returning reference is intentional
+    return (b < a) ? a : b; // NOLINT(bugprone-return-const-ref-from-parameter) - returning reference is intentional
 }
 
 /// Returns the smaller of two values using operator<
@@ -125,7 +125,7 @@ template <class T>
 [[nodiscard]] constexpr T const& min(T const& a, T const& b)
 {
     static_assert(requires { a < b; }, "T must support operator<");
-    return (a < b) ? a : b; // NOLINT(bugprone-return-const-ref-from-parameter) - returning reference is intentional
+    return (b < a) ? b : a; // NOLINT(bugprone-return-const-ref-from-parameter) - returning reference is intentional
 }
 
 /// Clamps a value to the range [lo, hi]

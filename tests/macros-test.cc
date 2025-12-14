@@ -1,4 +1,5 @@
 #include <clean-core/macros.hh>
+
 #include <nexus/test.hh>
 
 #include <cstring>
@@ -27,6 +28,11 @@
 // Test: Exactly-one OS is selected
 #if defined(CC_OS_WINDOWS) + defined(CC_OS_LINUX) + defined(CC_OS_APPLE) + defined(CC_OS_BSD) != 1
 #error "Expected exactly one OS macro to be defined"
+#endif
+
+// Test: Exactly-one build configuration is selected
+#if defined(CC_DEBUG) + defined(CC_RELEASE) + defined(CC_RELWITHDEBINFO) != 1
+#error "Expected exactly one build configuration macro to be defined"
 #endif
 
 // Test: Target macro consistency - Windows platforms
@@ -132,83 +138,21 @@ TEST("macros - OS detection")
     CHECK(os_count == 1);
 }
 
-TEST("macros - target platform consistency")
+TEST("macros - build configuration detection")
 {
-    SECTION("Windows targets")
-    {
-#ifdef CC_OS_WINDOWS
-        int target_count = 0;
-#ifdef CC_TARGET_PC
-        target_count++;
+    // Verify that exactly one build configuration is selected (already checked at compile-time)
+    int config_count = 0;
+#ifdef CC_DEBUG
+    config_count++;
 #endif
-#ifdef CC_TARGET_XBOX
-        target_count++;
+#ifdef CC_RELEASE
+    config_count++;
 #endif
-        CHECK(target_count == 1);
-#endif
-    }
-
-    SECTION("Apple targets")
-    {
-#ifdef CC_OS_APPLE
-        int target_count = 0;
-#ifdef CC_TARGET_MACOS
-        target_count++;
-#endif
-#ifdef CC_TARGET_IOS
-        target_count++;
-#endif
-#ifdef CC_TARGET_TVOS
-        target_count++;
-#endif
-        CHECK(target_count == 1);
-#endif
-    }
-
-    SECTION("Mobile target consistency")
-    {
-#ifdef CC_TARGET_MOBILE
-        CHECK((defined(CC_TARGET_IOS) || defined(CC_TARGET_TVOS) || defined(CC_TARGET_ANDROID)));
+#ifdef CC_RELWITHDEBINFO
+    config_count++;
 #endif
 
-#if defined(CC_TARGET_IOS) || defined(CC_TARGET_TVOS) || defined(CC_TARGET_ANDROID)
-        CHECK(defined(CC_TARGET_MOBILE));
-#endif
-    }
-
-    SECTION("Console target consistency")
-    {
-#ifdef CC_TARGET_CONSOLE
-        CHECK((defined(CC_TARGET_ORBIS) || defined(CC_TARGET_NX) || defined(CC_TARGET_XBOX)));
-#endif
-
-#if defined(CC_TARGET_ORBIS) || defined(CC_TARGET_NX) || defined(CC_TARGET_XBOX)
-        CHECK(defined(CC_TARGET_CONSOLE));
-#endif
-    }
-}
-
-TEST("macros - feature flags")
-{
-    SECTION("RTTI flag is well-defined")
-    {
-        // The macro is either defined or not, never in an invalid state
-#ifdef CC_HAS_RTTI
-        CHECK(true); // If defined, we're good
-#else
-        CHECK(true); // If not defined, we're also good
-#endif
-    }
-
-    SECTION("Exceptions flag is well-defined")
-    {
-        // The macro is either defined or not, never in an invalid state
-#ifdef CC_HAS_CPP_EXCEPTIONS
-        CHECK(true); // If defined, we're good
-#else
-        CHECK(true); // If not defined, we're also good
-#endif
-    }
+    CHECK(config_count == 1);
 }
 
 TEST("macros - CC_ARRAY_COUNT_OF")

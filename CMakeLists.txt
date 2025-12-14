@@ -51,6 +51,14 @@ target_compile_options(clean-core
     $<$<CXX_COMPILER_ID:MSVC>:/Zc:preprocessor>
 )
 
+# Define build configuration macros
+target_compile_definitions(clean-core
+    PUBLIC
+    $<$<CONFIG:Debug>:CC_DEBUG>
+    $<$<CONFIG:Release>:CC_RELEASE>
+    $<$<CONFIG:RelWithDebInfo>:CC_RELWITHDEBINFO>
+)
+
 # Link backtrace library for GCC/Clang (required for <stacktrace>)
 target_link_libraries(clean-core
     PRIVATE
