@@ -1,6 +1,7 @@
 #pragma once
 
 #include <clean-core/assert.hh>
+#include <clean-core/fwd.hh>
 #include <clean-core/string_view.hh>
 #include <clean-core/to_string.hh>
 
@@ -12,7 +13,7 @@ namespace cc
 struct debug_string_config
 {
     // not strict for now
-    int max_length = 100;
+    isize max_length = 100;
 };
 
 // Converts a value to a developer-facing debug string.
@@ -49,7 +50,7 @@ namespace impl
 template <class T>
 bool to_debug_string_append_elem(string& s, T const& v, debug_string_config const& cfg)
 {
-    if (int(s.size()) >= cfg.max_length)
+    if (isize(s.size()) >= cfg.max_length)
     {
         s += ", ...";
         return false;
