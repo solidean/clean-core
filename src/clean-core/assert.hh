@@ -2,7 +2,7 @@
 
 #include <clean-core/macros.hh>
 
-#include <format>
+#include <format> // NOLINT(unused-includes)
 #include <source_location>
 #include <string>
 #include <string_view>
