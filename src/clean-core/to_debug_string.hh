@@ -17,7 +17,7 @@ struct debug_string_config
 // Converts a value to a developer-facing debug string.
 // Best-effort, non-semantic, and intended only for diagnostics.
 //
-// Strategy (in rough order):
+// Strategy (in order):
 //   - Use to_string(v) if available
 //   - Use v.to_string() if available
 //   - For collections, recursively format elements as [v0, v1, ...]
@@ -54,7 +54,7 @@ bool to_debug_string_append_elem(string& s, T const& v, debug_string_config cons
 template <class T, std::size_t... I>
 void to_debug_string_append_tuple(string& s, T const& v, debug_string_config const& cfg, std::index_sequence<I...>)
 {
-    (cc::impl::to_debug_string_append_elem(s, std::get<I>(v), cfg) && ...);
+    (void)(cc::impl::to_debug_string_append_elem(s, std::get<I>(v), cfg) && ...);
 }
 } // namespace impl
 

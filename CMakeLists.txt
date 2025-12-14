@@ -6,10 +6,12 @@ project(clean-core LANGUAGES CXX)
 
 # Define the library and its sources
 add_library(clean-core
+    src/clean-core/array.cc
     src/clean-core/assert.cc
     src/clean-core/to_string.cc
     src/clean-core/string.cc
     src/clean-core/string_view.cc
+    src/clean-core/vector.cc
 )
 
 # Public headers live co-located in src/ for better editor experience.
@@ -20,6 +22,7 @@ target_sources(clean-core
     TYPE HEADERS
     BASE_DIRS "${CMAKE_CURRENT_SOURCE_DIR}/src"
     FILES
+    src/clean-core/array.hh
     src/clean-core/assert.hh
     src/clean-core/assert-handler.hh
     src/clean-core/fwd.hh
@@ -29,6 +32,7 @@ target_sources(clean-core
     src/clean-core/string.hh
     src/clean-core/string_view.hh
     src/clean-core/utility.hh
+    src/clean-core/vector.hh
 )
 
 # Libraries should not set a global C++ standard here.
@@ -70,6 +74,7 @@ add_executable(clean-core-test
     tests/main.cc
     tests/assert-test.cc
     tests/macros-test.cc
+    tests/to_debug_string-test.cc
     tests/utility-test.cc
 )
 
