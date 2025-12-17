@@ -37,11 +37,30 @@
 //   align_down_masked(value, mask)   - decrement using pre-computed mask
 //   is_aligned(value, alignment)     - check if aligned at boundary (power of 2)
 //
+// Callable utilities:
+//   overloaded(f1, f2, ...)          - combine multiple callables into single overload set
+//   void_function                    - callable that returns void for any arguments
+//   identify_function                - callable that returns its argument (identity function)
+//   constant_function<C>             - callable that always returns constant C
+//   projection_function<I>           - callable that returns the I-th argument
+//
+// Template metaprogramming:
+//   dont_deduce<T>                   - disable template argument deduction for T
+//   always_false_t<T...>             - always false for static_assert with type parameters
+//   always_false_v<V...>             - always false for static_assert with value parameters
+//   function_ptr<Signature>          - convert function signature to function pointer type
+//
+// Scope utilities:
+//   CC_DEFER { code }                - execute code at scope-exit (RAII cleanup)
+//
+// Iterator utilities:
+//   sentinel                         - lightweight end-of-range sentinel type
+//
 
 // TODO
-// - overloaded
 // - is_memcopyable
 // - is/has things
+
 
 namespace cc
 {
@@ -339,6 +358,231 @@ template <class T>
     CC_ASSERT(alignment > 0 && is_power_of_two(alignment), "is_aligned: alignment must be a power of 2");
     return 0 == ((isize)value & (alignment - 1));
 }
+
+// =========================================================================================================
+// Callable utilities
+// =========================================================================================================
+
+/// Combines multiple callables into a single overload set via variadic inheritance
+/// Each callable's operator() becomes available as an overload
+/// Usage:
+///   auto f = cc::overloaded{
+///       [](int x) { return x * 2; },
+///       [](float x) { return x * 3.0f; },
+///       [](char const* s) { return std::strlen(s); }
+///   };
+///   f(10);      // calls int overload -> 20
+///   f(5.0f);    // calls float overload -> 15.0f
+///   f("hello"); // calls string overload -> 5
+template <class... Fs>
+struct overloaded : Fs...
+{
+    overloaded(Fs... fs) : Fs(fs)... {}
+    using Fs::operator()...;
+};
+
+/// Callable that returns void for all possible arguments
+/// Useful as a no-op callback or for discarding results
+/// Usage:
+///   cc::void_function{}();           // returns void
+///   cc::void_function{}(1, 2, 3);    // returns void
+///   std::visit(cc::void_function{}, variant);  // ignores all alternatives
+struct void_function
+{
+    template <class... Args>
+    constexpr void operator()(Args&&...) const noexcept
+    {
+    }
+};
+
+/// Callable that returns its argument with perfect forwarding
+/// Preserves value category (lvalue/rvalue) of the input
+/// Usage:
+///   int x = 5;
+///   int& ref = cc::identify_function{}(x);        // returns lvalue reference
+///   int&& rval = cc::identify_function{}(10);     // returns rvalue reference
+///   auto val = cc::identify_function{}(x);        // copies x
+struct identify_function
+{
+    template <class T>
+    constexpr T&& operator()(T&& arg) const noexcept
+    {
+        return forward<T>(arg);
+    }
+};
+
+/// Callable that returns a constant value for all possible arguments
+/// The constant is returned by value (as auto) regardless of input
+/// Usage:
+///   cc::constant_function<42>{}();           // returns 42
+///   cc::constant_function<42>{}(1, 2, 3);    // returns 42
+///   cc::constant_function<3.14f>{}("test");  // returns 3.14f
+template <auto C>
+struct constant_function
+{
+    template <class... Args>
+    constexpr auto operator()(Args&&...) const noexcept
+    {
+        return C;
+    }
+};
+
+/// Callable that returns the I-th argument with perfect forwarding
+/// Preserves value category of the selected argument
+/// Usage:
+///   cc::projection_function<0>{}(10, 20, 30);     // returns first arg: 10
+///   cc::projection_function<1>{}(10, 20, 30);     // returns second arg: 20
+///   cc::projection_function<2>{}(10, 20, 30);     // returns third arg: 30
+template <unsigned I>
+struct projection_function
+{
+    template <class... Args>
+    constexpr auto&& operator()(Args&&... args) const noexcept
+    {
+        return forward<decltype(get_nth<I>(forward<Args>(args)...))>(get_nth<I>(forward<Args>(args)...));
+    }
+
+private:
+    template <unsigned Idx, class T, class... Ts>
+    static constexpr auto&& get_nth(T&& first, Ts&&... rest) noexcept
+    {
+        if constexpr (Idx == 0)
+            return forward<T>(first);
+        else
+            return get_nth<Idx - 1>(forward<Ts>(rest)...);
+    }
+};
+
+// =========================================================================================================
+// Template metaprogramming utilities
+// =========================================================================================================
+
+namespace impl
+{
+template <class T>
+struct dont_deduce_t
+{
+    using type = T;
+};
+} // namespace impl
+
+/// Helper typedef for disabling template argument deduction
+/// Prevents the compiler from deducing T in this parameter position
+/// See https://artificial-mind.net/blog/2020/09/26/dont-deduce
+/// Usage:
+///   template <class T>
+///   vec3<T> operator*(vec3<T> const& a, cc::dont_deduce<T> b);
+///   // Now this works:
+///   vec3<float> v = ...;
+///   v = v * 3;  // deduces T from first arg only, then 3 is converted to float
+template <class T>
+using dont_deduce = typename impl::dont_deduce_t<T>::type;
+
+/// Helper for indicating errors in static_asserts with dependent types
+/// Always evaluates to false, but only after template instantiation
+/// Usage:
+///   template<class T>
+///   void foo() {
+///       static_assert(cc::always_false_t<T>, "T is not supported");
+///   }
+template <class... E>
+constexpr bool always_false_t = false;
+
+/// Same as always_false_t but for non-type template parameters
+/// Usage:
+///   template<int Dimension>
+///   void foo() {
+///       static_assert(cc::always_false_v<Dimension>, "unsupported dimension");
+///   }
+template <auto... E>
+constexpr bool always_false_v = false;
+
+namespace impl
+{
+template <class T>
+struct function_ptr_t
+{
+    static_assert(always_false_t<T>, "function_ptr should only be used with function signatures");
+};
+template <class R, class... Args>
+struct function_ptr_t<R(Args...)>
+{
+    using type = R (*)(Args...);
+};
+template <class R, class... Args>
+struct function_ptr_t<R(Args...) noexcept>
+{
+    using type = R (*)(Args...) noexcept;
+};
+} // namespace impl
+
+/// Type alias for readable function pointer types
+/// Converts function signature to function pointer type
+/// Usage:
+///   cc::function_ptr<int(float, double)>          -> int (*)(float, double)
+///   cc::function_ptr<void() noexcept>             -> void (*)() noexcept
+///   cc::function_ptr<char*(int)>                  -> char* (*)(int)
+template <class T>
+using function_ptr = typename impl::function_ptr_t<T>::type;
+
+// =========================================================================================================
+// Scope utilities
+// =========================================================================================================
+
+namespace impl
+{
+template <class F>
+struct deferred
+{
+    F f;
+    explicit deferred(F func) : f(static_cast<F&&>(func)) {}
+    ~deferred() noexcept(false) { f(); }
+
+    deferred(deferred const&) = delete;
+    deferred& operator=(deferred const&) = delete;
+    deferred(deferred&&) = delete;
+    deferred& operator=(deferred&&) = delete;
+};
+
+struct deferred_tag
+{
+};
+
+template <class F>
+deferred<F> operator+(deferred_tag, F&& f)
+{
+    return deferred<F>(cc::forward<F>(f));
+}
+} // namespace impl
+
+/// Execute code at scope-exit (RAII-style cleanup)
+/// Captures by reference - be careful with lifetime
+/// Usage:
+///   begin();
+///   CC_DEFER { end(); };
+///   // ... code that might throw or return ...
+///   // end() is guaranteed to be called when scope exits
+#define CC_DEFER auto const CC_MACRO_JOIN(_cc_deferred_, __COUNTER__) = ::cc::impl::deferred_tag{} + [&]
+
+// =========================================================================================================
+// Iterator utilities
+// =========================================================================================================
+
+/// A generic end-of-range sentinel type
+/// Used as a lightweight alternative to a full iterator for range end
+/// Usage:
+///   struct my_range {
+///       my_iterator begin() { return ...; }
+///       cc::sentinel end() const { return {}; }
+///   };
+///   struct my_iterator {
+///       bool operator!=(cc::sentinel) const { return is_still_valid(); }
+///       // ... other iterator operations ...
+///   };
+struct sentinel
+{
+};
+
 } // namespace cc
 
 // =========================================================================================================

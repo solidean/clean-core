@@ -1,9 +1,10 @@
+#include <clean-core/assert-handler.hh>
 #include <clean-core/utility.hh>
 
-#include <clean-core/assert-handler.hh>
 #include <nexus/test.hh>
 
 #include <cstdint>
+
 
 // =========================================================================================================
 // Helper types for testing
@@ -67,26 +68,26 @@ void swap(AdlSwappable& a, AdlSwappable& b) noexcept
 } // namespace test_ns
 
 // Helper macro to test that expressions trigger assertions
-#define CHECK_ASSERTS(expr)                                                                  \
-    do                                                                                       \
-    {                                                                                        \
-        bool assertion_triggered = false;                                                   \
-        {                                                                                    \
-            auto handler = cc::impl::scoped_assertion_handler(                              \
-                [&](cc::impl::assertion_info const&)                                        \
-                {                                                                            \
-                    assertion_triggered = true;                                             \
-                    throw 0;                                                                 \
-                });                                                                          \
-            try                                                                              \
-            {                                                                                \
-                (void)(expr);                                                                \
-            }                                                                                \
-            catch (int)                                                                      \
-            {                                                                                \
-            }                                                                                \
-        }                                                                                    \
-        CHECK(assertion_triggered);                                                          \
+#define CHECK_ASSERTS(expr)                                    \
+    do                                                         \
+    {                                                          \
+        bool assertion_triggered = false;                      \
+        {                                                      \
+            auto handler = cc::impl::scoped_assertion_handler( \
+                [&](cc::impl::assertion_info const&)           \
+                {                                              \
+                    assertion_triggered = true;                \
+                    throw 0;                                   \
+                });                                            \
+            try                                                \
+            {                                                  \
+                (void)(expr);                                  \
+            }                                                  \
+            catch (int)                                        \
+            {                                                  \
+            }                                                  \
+        }                                                      \
+        CHECK(assertion_triggered);                            \
     } while (false)
 
 // =========================================================================================================
@@ -136,8 +137,8 @@ TEST("utility - forward preserves value categories")
     int lval = 5;
     int const const_lval = 6;
 
-    CHECK(wrapper(lval) == 1);        // lvalue -> lvalue overload
-    CHECK(wrapper(10) == 2);          // rvalue -> rvalue overload
+    CHECK(wrapper(lval) == 1);       // lvalue -> lvalue overload
+    CHECK(wrapper(10) == 2);         // rvalue -> rvalue overload
     CHECK(wrapper(const_lval) == 3); // const lvalue -> const overload
 
     // Compile-time check
@@ -697,5 +698,412 @@ TEST("utility - precondition failures trigger assertions")
     SECTION("clamp: hi < lo")
     {
         CHECK_ASSERTS(cc::clamp(5, 10, 0));
+    }
+}
+
+// =========================================================================================================
+// Callable utilities tests
+// =========================================================================================================
+
+TEST("utility - overloaded combines multiple callables")
+{
+    SECTION("basic overload resolution")
+    {
+        auto f = cc::overloaded([](int x) { return x * 2; }, [](float x) { return x * 3.0f; },
+                                [](char const* s) { return s[0]; });
+
+        CHECK(f(10) == 20);
+        CHECK(f(5.0f) == 15.0f);
+        CHECK(f("hello") == 'h');
+    }
+
+    SECTION("overloaded with different return types")
+    {
+        auto f = cc::overloaded([](int) { return 42; }, [](float) { return 3.14f; });
+
+        static_assert(std::is_same_v<decltype(f(1)), int>);
+        static_assert(std::is_same_v<decltype(f(1.0f)), float>);
+    }
+
+    SECTION("overloaded with references")
+    {
+        int counter = 0;
+        auto f = cc::overloaded([&](int) { counter += 1; }, [&](float) { counter += 10; });
+
+        f(5);
+        CHECK(counter == 1);
+        f(3.0f);
+        CHECK(counter == 11);
+    }
+}
+
+TEST("utility - void_function returns void")
+{
+    SECTION("no arguments")
+    {
+        cc::void_function{}();
+        CHECK(true); // just checking it compiles and runs
+    }
+
+    SECTION("multiple arguments")
+    {
+        cc::void_function{}(1, 2, 3, "test", 3.14f);
+        CHECK(true); // just checking it compiles and runs
+    }
+
+    SECTION("used as callback")
+    {
+        auto execute = [](auto fn) { fn(10, 20); };
+        execute(cc::void_function{});
+        CHECK(true); // just checking it compiles and runs
+    }
+}
+
+TEST("utility - identify_function preserves value category")
+{
+    SECTION("lvalue reference")
+    {
+        int x = 42;
+        int& ref = cc::identify_function{}(x);
+        CHECK(&ref == &x);
+        CHECK(ref == 42);
+    }
+
+    SECTION("rvalue reference")
+    {
+        static_assert(std::is_same_v<decltype(cc::identify_function{}(10)), int&&>);
+    }
+
+    SECTION("const lvalue reference")
+    {
+        int const x = 42;
+        int const& ref = cc::identify_function{}(x);
+        CHECK(&ref == &x);
+    }
+
+    SECTION("modifying through reference")
+    {
+        int x = 10;
+        cc::identify_function{}(x) = 20;
+        CHECK(x == 20);
+    }
+}
+
+TEST("utility - constant_function returns constant value")
+{
+    SECTION("integer constant")
+    {
+        auto f = cc::constant_function<42>{};
+        CHECK(f() == 42);
+        CHECK(f(1, 2, 3) == 42);
+        CHECK(f("ignored") == 42);
+    }
+
+    SECTION("float constant")
+    {
+        auto f = cc::constant_function<3.14f>{};
+        CHECK(f() == 3.14f);
+        CHECK(f(100) == 3.14f);
+    }
+
+    SECTION("bool constant")
+    {
+        auto f = cc::constant_function<true>{};
+        CHECK(f() == true);
+        CHECK(f(false) == true);
+    }
+}
+
+TEST("utility - projection_function returns nth argument")
+{
+    SECTION("first argument")
+    {
+        auto f = cc::projection_function<0>{};
+        CHECK(f(10, 20, 30) == 10);
+        CHECK(f(100) == 100);
+    }
+
+    SECTION("second argument")
+    {
+        auto f = cc::projection_function<1>{};
+        CHECK(f(10, 20, 30) == 20);
+        CHECK(f('a', 'b') == 'b');
+    }
+
+    SECTION("third argument")
+    {
+        auto f = cc::projection_function<2>{};
+        CHECK(f(10, 20, 30) == 30);
+        CHECK(f(1.0f, 2.0f, 3.0f) == 3.0f);
+    }
+
+    SECTION("preserves reference")
+    {
+        int a = 1, b = 2, c = 3;
+        int& ref = cc::projection_function<1>{}(a, b, c);
+        CHECK(&ref == &b);
+        ref = 200;
+        CHECK(b == 200);
+    }
+
+    SECTION("works with different types")
+    {
+        auto result = cc::projection_function<1>{}(10, 3.14f, "hello");
+        static_assert(std::is_same_v<decltype(result), float>);
+        CHECK(result == 3.14f);
+    }
+}
+
+// =========================================================================================================
+// Template metaprogramming utilities tests
+// =========================================================================================================
+
+TEST("utility - dont_deduce disables deduction")
+{
+    // This test verifies the type alias works correctly
+    // Actual deduction behavior would be tested at compile time
+    static_assert(std::is_same_v<cc::dont_deduce<int>, int>);
+    static_assert(std::is_same_v<cc::dont_deduce<float>, float>);
+    static_assert(std::is_same_v<cc::dont_deduce<char const*>, char const*>);
+    CHECK(true); // compile-time test only
+}
+
+TEST("utility - always_false_t and always_false_v are false")
+{
+    SECTION("always_false_t")
+    {
+        static_assert(!cc::always_false_t<int>);
+        static_assert(!cc::always_false_t<float, double>);
+        static_assert(!cc::always_false_t<>);
+        CHECK(true); // compile-time test only
+    }
+
+    SECTION("always_false_v")
+    {
+        static_assert(!cc::always_false_v<42>);
+        static_assert(!cc::always_false_v<1, 2, 3>);
+        CHECK(true); // compile-time test only
+    }
+}
+
+TEST("utility - function_ptr converts signatures to pointers")
+{
+    SECTION("simple function")
+    {
+        using ptr_t = cc::function_ptr<int(float, double)>;
+        static_assert(std::is_same_v<ptr_t, int (*)(float, double)>);
+    }
+
+    SECTION("void return")
+    {
+        using ptr_t = cc::function_ptr<void()>;
+        static_assert(std::is_same_v<ptr_t, void (*)()>);
+    }
+
+    SECTION("noexcept function")
+    {
+        using ptr_t = cc::function_ptr<int(float) noexcept>;
+        static_assert(std::is_same_v<ptr_t, int (*)(float) noexcept>);
+    }
+
+    SECTION("function with many parameters")
+    {
+        using ptr_t = cc::function_ptr<char*(int, float, double, char)>;
+        static_assert(std::is_same_v<ptr_t, char* (*)(int, float, double, char)>);
+    }
+
+    SECTION("can be used with actual function pointers")
+    {
+        auto my_func = [](int x, int y) -> int { return x + y; };
+        cc::function_ptr<int(int, int)> ptr = +my_func; // + converts lambda to function pointer
+        CHECK(ptr(3, 4) == 7);
+    }
+}
+
+// =========================================================================================================
+// Scope utilities tests
+// =========================================================================================================
+
+TEST("utility - CC_DEFER executes at scope exit")
+{
+    SECTION("basic defer")
+    {
+        int counter = 0;
+        {
+            CC_DEFER
+            {
+                counter = 42;
+            };
+            CHECK(counter == 0); // not executed yet
+        }
+        CHECK(counter == 42); // executed at scope exit
+    }
+
+    SECTION("defer with multiple statements")
+    {
+        int a = 0, b = 0;
+        {
+            CC_DEFER
+            {
+                a = 10;
+                b = 20;
+            };
+            CHECK(a == 0);
+            CHECK(b == 0);
+        }
+        CHECK(a == 10);
+        CHECK(b == 20);
+    }
+
+    SECTION("multiple defers execute in reverse order")
+    {
+        int order = 0;
+        int first = 0, second = 0, third = 0;
+        {
+            CC_DEFER
+            {
+                first = ++order;
+            };
+            CC_DEFER
+            {
+                second = ++order;
+            };
+            CC_DEFER
+            {
+                third = ++order;
+            };
+        }
+        CHECK(third == 1);  // executed first
+        CHECK(second == 2); // executed second
+        CHECK(first == 3);  // executed last
+    }
+
+    SECTION("defer with early return")
+    {
+        int cleanup = 0;
+        auto test_func = [&]() -> int
+        {
+            CC_DEFER
+            {
+                cleanup = 1;
+            };
+            return 42;
+        };
+        int result = test_func();
+        CHECK(result == 42);
+        CHECK(cleanup == 1); // defer still executed
+    }
+
+    SECTION("defer captures by reference")
+    {
+        int value = 0;
+        {
+            CC_DEFER
+            {
+                value = 100;
+            };
+            value = 50; // modify before defer executes
+        }
+        CHECK(value == 100); // defer sees modified value
+    }
+
+    SECTION("defer can throw exceptions")
+    {
+        bool exception_caught = false;
+        try
+        {
+            CC_DEFER
+            {
+                throw std::runtime_error("test exception");
+            };
+        }
+        catch (std::runtime_error const& e)
+        {
+            exception_caught = true;
+            CHECK(std::string(e.what()) == "test exception");
+        }
+        CHECK(exception_caught); // exception propagated from defer
+    }
+}
+
+// =========================================================================================================
+// Iterator utilities tests
+// =========================================================================================================
+
+TEST("utility - sentinel as end-of-range marker")
+{
+    SECTION("sentinel is default constructible")
+    {
+        cc::sentinel s;
+        cc::sentinel s2{};
+        // Just checking it compiles
+    }
+
+    SECTION("sentinel used with custom iterator")
+    {
+        struct counting_iterator
+        {
+            int count;
+            int max;
+
+            int operator*() const { return count; }
+            counting_iterator& operator++()
+            {
+                ++count;
+                return *this;
+            }
+            bool operator!=(cc::sentinel) const { return count < max; }
+        };
+
+        struct counting_range
+        {
+            int max;
+            counting_iterator begin() const { return {0, max}; }
+            cc::sentinel end() const { return {}; }
+        };
+
+        counting_range range{5};
+        int sum = 0;
+        for (int val : range)
+        {
+            sum += val;
+        }
+        CHECK(sum == 0 + 1 + 2 + 3 + 4);
+    }
+
+    SECTION("sentinel with pointer-based iterator")
+    {
+        struct array_view
+        {
+            int const* ptr;
+            int size;
+
+            struct iterator
+            {
+                int const* current;
+                int const* end_ptr;
+
+                int operator*() const { return *current; }
+                iterator& operator++()
+                {
+                    ++current;
+                    return *this;
+                }
+                bool operator!=(cc::sentinel) const { return current != end_ptr; }
+            };
+
+            iterator begin() const { return {ptr, ptr + size}; }
+            cc::sentinel end() const { return {}; }
+        };
+
+        int arr[] = {10, 20, 30};
+        array_view view{arr, 3};
+
+        int sum = 0;
+        for (int val : view)
+        {
+            sum += val;
+        }
+        CHECK(sum == 60);
     }
 }
