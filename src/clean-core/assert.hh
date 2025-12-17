@@ -125,9 +125,7 @@
 // Implementation details
 // =========================================================================================================
 
-namespace cc
-{
-namespace impl
+namespace cc::impl
 {
 // Called when an assertion fails
 // Prints diagnostic information to stderr
@@ -141,8 +139,7 @@ bool is_debugger_connected() noexcept;
 // Terminates the program
 // Wrapper around std::abort() to allow future customization
 [[noreturn]] void perform_abort() noexcept;
-} // namespace impl
-} // namespace cc
+} // namespace cc::impl
 
 // Platform-specific debugger break implementation
 // The debugger should break right in the assert macro, so this cannot hide in a function call

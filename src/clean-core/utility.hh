@@ -42,7 +42,6 @@
 // - overloaded
 // - is_memcopyable
 // - is/has things
-// - force inline here a lot!
 
 namespace cc
 {
@@ -56,7 +55,7 @@ namespace cc
 ///   vec.push_back(cc::move(obj));  // transfer obj into vector
 ///   T b = cc::move(a);              // move construct b from a
 template <class T>
-[[nodiscard]] constexpr T&& move(T& value) noexcept
+[[nodiscard]] CC_FORCE_INLINE constexpr T&& move(T& value) noexcept
 {
     return static_cast<T&&>(value);
 }
@@ -69,13 +68,13 @@ template <class T>
 ///       foo(cc::forward<T>(arg));  // forwards as lvalue or rvalue depending on T
 ///   }
 template <class T>
-[[nodiscard]] constexpr T&& forward(T& value) noexcept
+[[nodiscard]] CC_FORCE_INLINE constexpr T&& forward(T& value) noexcept
 {
     return static_cast<T&&>(value);
 }
 
 template <class T>
-[[nodiscard]] constexpr T&& forward(T&& value) noexcept // NOLINT
+[[nodiscard]] CC_FORCE_INLINE constexpr T&& forward(T&& value) noexcept // NOLINT
 {
     return static_cast<T&&>(value);
 }
@@ -87,7 +86,7 @@ template <class T>
 ///   auto ptr = cc::exchange(p, nullptr);     // take ownership of p, set p to null
 ///   State prev = cc::exchange(state, State::Ready);  // transition state
 template <class T, class U = T>
-[[nodiscard]] constexpr T exchange(T& obj, U&& new_val) // NOLINT
+[[nodiscard]] CC_FORCE_INLINE constexpr T exchange(T& obj, U&& new_val) // NOLINT
 {
     T old_val = static_cast<T&&>(obj);
     obj = forward<U>(new_val);
