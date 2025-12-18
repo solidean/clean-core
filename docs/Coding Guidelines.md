@@ -102,16 +102,22 @@ Non-performance-critical functions can live in `.cc` files to reduce compile tim
 
 ### Constructors vs Factory Methods
 
+**Keep types default constructible.** Non-default-constructible types are painful to use in containers, optional, and generic code. Provide an "invalid" or "empty" state if needed.
+
 Avoid non-trivial constructors. Prefer static factory methods instead:
 
 ```cpp
-// Good: factory method with clear name, can fail, returns specific type
+// Good: default constructible with factory methods
 struct texture {
     [[nodiscard]] static cc::result<texture> from_file(cc::string_view path);
     [[nodiscard]] static texture from_dimensions(int width, int height);
 
+    texture() = default;  // always provide default ctor
+
+    bool is_valid() const { return _width > 0; }
+
 private:
-    texture() = default;  // keep ctor simple
+    int _width = 0;  // invalid state when 0
 };
 
 // Avoid: complex ctor that can fail
@@ -125,6 +131,11 @@ struct texture {
 - Can return different types (base class, interface, optimized variants)
 - Have descriptive names that clarify intent
 - More flexible for future changes
+
+**Benefits of default constructibility:**
+- Works seamlessly with containers, `optional`, and generic algorithms
+- Simplifies two-phase initialization patterns
+- Reduces friction in generic code
 
 ### Initialization
 

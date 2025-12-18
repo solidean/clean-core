@@ -31,6 +31,8 @@ public:
 
     [[nodiscard]] static texture from_dimensions(int width, int height);
 
+    texture() = default;
+
     // queries
 public:
     int width() const { return _width; }
@@ -42,8 +44,6 @@ public:
     void resize(int new_width, int new_height);
 
 private:
-    texture() = default;
-
     int _width = 0;
     int _height = 0;
     cc::array<cc::byte> _data;
