@@ -1,9 +1,9 @@
 #pragma once
 
 #include <clean-core/macros.hh>
+#include <clean-core/source_location.hh>
 
 #include <functional>
-#include <source_location>
 #include <string>
 
 namespace cc::impl
@@ -26,7 +26,7 @@ struct assertion_info
 {
     std::string expression;
     std::string message;
-    std::source_location location;
+    cc::source_location location;
 };
 
 // Push a custom assertion handler onto the handler stack

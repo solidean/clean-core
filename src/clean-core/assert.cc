@@ -1,11 +1,11 @@
 #include "assert.hh"
 
 #include <clean-core/assert-handler.hh>
+#include <clean-core/stacktrace.hh>
 
 #include <cstdio>
 #include <cstdlib>
 #include <iostream>
-#include <stacktrace>
 #include <vector>
 
 #ifdef CC_COMPILER_MSVC
@@ -34,7 +34,7 @@ void default_assert_handler(cc::impl::assertion_info const& info)
 
     // Print stacktrace
     std::cerr << "\nStacktrace:\n";
-    auto trace = std::stacktrace::current();
+    auto trace = cc::stacktrace::current();
     std::cerr << std::to_string(trace) << '\n';
 }
 } // namespace
@@ -62,7 +62,7 @@ cc::impl::scoped_assertion_handler::~scoped_assertion_handler()
 
 CC_COLD_FUNC void cc::impl::handle_assert_failure(std::string_view expression,
                                                   std::string message,
-                                                  std::source_location location)
+                                                  cc::source_location location)
 {
     assertion_info const info{
         .expression = std::string(expression),

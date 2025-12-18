@@ -27,6 +27,9 @@ using u64 = uint64_t;
 using f32 = float;
 using f64 = double;
 
+// generic bytes
+using byte = std::byte;
+
 // signed size type (controversial but intentional)
 // We use signed i64 for sizes and indices instead of size_t for several reasons:
 // * Arithmetic with sizes often requires subtraction, which causes underflow bugs with unsigned

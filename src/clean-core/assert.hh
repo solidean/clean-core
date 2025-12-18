@@ -1,9 +1,9 @@
 #pragma once
 
 #include <clean-core/macros.hh>
+#include <clean-core/source_location.hh>
 
 #include <format> // NOLINT(unused-includes)
-#include <source_location>
 #include <string>
 #include <string_view>
 
@@ -130,7 +130,7 @@ namespace cc::impl
 // Called when an assertion fails
 // Prints diagnostic information to stderr
 // Note: does not abort, caller must follow with CC_BREAK_AND_ABORT()
-CC_COLD_FUNC void handle_assert_failure(std::string_view expression, std::string message, std::source_location location);
+CC_COLD_FUNC void handle_assert_failure(std::string_view expression, std::string message, cc::source_location location);
 
 // Checks if a debugger is currently attached to the process
 // Platform-specific implementation (Windows: IsDebuggerPresent, Linux: /proc, macOS: sysctl)
@@ -174,7 +174,7 @@ extern "C" int raise(int) noexcept;
         if CC_CONDITION_UNLIKELY (!(cond))                                                        \
         {                                                                                         \
             ::cc::impl::handle_assert_failure(#cond, std::format(msg __VA_OPT__(, ) __VA_ARGS__), \
-                                              std::source_location::current());                   \
+                                              ::cc::source_location::current());                  \
             CC_BREAK_AND_ABORT();                                                                 \
         }                                                                                         \
     } while (false)

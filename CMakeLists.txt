@@ -27,6 +27,8 @@ target_sources(clean-core
     src/clean-core/assert-handler.hh
     src/clean-core/fwd.hh
     src/clean-core/macros.hh
+    src/clean-core/source_location.hh
+    src/clean-core/stacktrace.hh
     src/clean-core/to_string.hh
     src/clean-core/to_debug_string.hh
     src/clean-core/string.hh
