@@ -50,6 +50,10 @@
 //   always_false_v<V...>             - always false for static_assert with value parameters
 //   function_ptr<Signature>          - convert function signature to function pointer type
 //
+// Memory management:
+//   new(cc::placement_new, ptr) T    - placement new with explicit tag type
+//   storage_for<T>                   - uninitialized storage for manual lifetime management
+//
 // Scope utilities:
 //   CC_DEFER { code }                - execute code at scope-exit (RAII cleanup)
 //
@@ -60,7 +64,6 @@
 // TODO
 // - is_memcopyable
 // - is/has things
-
 
 namespace cc
 {
@@ -74,9 +77,9 @@ namespace cc
 ///   vec.push_back(cc::move(obj));  // transfer obj into vector
 ///   T b = cc::move(a);              // move construct b from a
 template <class T>
-[[nodiscard]] CC_FORCE_INLINE constexpr T&& move(T& value) noexcept
+[[nodiscard]] CC_FORCE_INLINE constexpr T&& move(T& v) noexcept
 {
-    return static_cast<T&&>(value);
+    return static_cast<T&&>(v);
 }
 
 /// Perfect forwarding for template arguments
@@ -87,15 +90,15 @@ template <class T>
 ///       foo(cc::forward<T>(arg));  // forwards as lvalue or rvalue depending on T
 ///   }
 template <class T>
-[[nodiscard]] CC_FORCE_INLINE constexpr T&& forward(T& value) noexcept
+[[nodiscard]] CC_FORCE_INLINE constexpr T&& forward(T& v) noexcept
 {
-    return static_cast<T&&>(value);
+    return static_cast<T&&>(v);
 }
 
 template <class T>
-[[nodiscard]] CC_FORCE_INLINE constexpr T&& forward(T&& value) noexcept // NOLINT
+[[nodiscard]] CC_FORCE_INLINE constexpr T&& forward(T&& v) noexcept // NOLINT
 {
-    return static_cast<T&&>(value);
+    return static_cast<T&&>(v);
 }
 
 /// Replace object with new value and return the old value
@@ -526,6 +529,58 @@ template <class T>
 using function_ptr = typename impl::function_ptr_t<T>::type;
 
 // =========================================================================================================
+// Memory management utilities
+// =========================================================================================================
+
+namespace impl
+{
+struct placement_new_tag
+{
+};
+} // namespace impl
+
+/// Tag object for explicit placement new syntax
+/// Provides a more readable alternative to standard placement new
+/// Usage:
+///   T* ptr = new(cc::placement_new, memory) T();
+///   T* arr = new(cc::placement_new, memory) T[5];
+[[maybe_unused]] static constexpr impl::placement_new_tag placement_new;
+
+/// Uninitialized storage for a value of type T
+/// Provides a union wrapper that does not default-construct or destruct T
+/// Useful for manual lifetime management in containers like optional, variant, etc.
+/// Usage:
+///   template <class T>
+///   struct my_optional
+///   {
+///       void set_value(T t) {
+///           if (_has_value)
+///               _storage.value.~T();
+///           new (&_storage.value) T(t);
+///           _has_value = true;
+///       }
+///
+///   private:
+///       cc::storage_for<T> _storage;
+///       bool _has_value = false;
+///   };
+template <class T>
+union storage_for // NOLINT(cppcoreguidelines-special-member-functions)
+{
+    // empty dtor in order to not initialize value but preserve triviality
+    ~storage_for()
+        requires(!std::is_trivially_destructible_v<T>)
+    {
+    }
+    ~storage_for()
+        requires std::is_trivially_destructible_v<T>
+    = default;
+
+    cc::byte dummy = {};
+    T value;
+};
+
+// =========================================================================================================
 // Scope utilities
 // =========================================================================================================
 
@@ -612,4 +667,27 @@ template <class T>
 constexpr void cc::impl::swap_fn::operator()(T& a, T& b) const
 {
     _no_cc_namespace::do_swap_impl(a, b);
+}
+
+// =========================================================================================================
+// Global placement new operators for cc::placement_new
+// =========================================================================================================
+
+/// Placement new operator for cc::placement_new tag
+/// Usage: T* ptr = new(cc::placement_new, memory) T();
+constexpr void* operator new(size_t, cc::impl::placement_new_tag, void* buffer)
+{
+    return buffer;
+}
+
+/// Placement new[] operator for cc::placement_new tag
+/// Usage: T* arr = new(cc::placement_new, memory) T[5];
+constexpr void* operator new[](size_t, cc::impl::placement_new_tag, void* buffer)
+{
+    return buffer;
+}
+
+/// Matching delete operator (required but typically never called)
+constexpr void operator delete(void*, cc::impl::placement_new_tag, void*)
+{
 }

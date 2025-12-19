@@ -6,8 +6,8 @@ project(clean-core LANGUAGES CXX)
 
 # Define the library and its sources
 add_library(clean-core
-    src/clean-core/array.cc
     src/clean-core/assert.cc
+    src/clean-core/dummy.cc
     src/clean-core/to_string.cc
     src/clean-core/string.cc
     src/clean-core/string_view.cc
@@ -27,6 +27,7 @@ target_sources(clean-core
     src/clean-core/assert-handler.hh
     src/clean-core/fwd.hh
     src/clean-core/macros.hh
+    src/clean-core/optional.hh
     src/clean-core/source_location.hh
     src/clean-core/stacktrace.hh
     src/clean-core/to_string.hh
@@ -76,6 +77,7 @@ add_executable(clean-core-test
     tests/main.cc
     tests/assert-test.cc
     tests/macros-test.cc
+    tests/optional-test.cc
     tests/to_debug_string-test.cc
     tests/utility-test.cc
 )

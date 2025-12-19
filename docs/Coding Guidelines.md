@@ -71,6 +71,13 @@ T x;                       // fine if initialized later
   void cc::to_string(...) { ... }
   ```
   This works when the declaration already exists.
+- Use `impl` nested namespaces for implementation details that must be visible (e.g., due to inlining requirements):
+  ```cpp
+  namespace cc::impl {
+      // implementation details here
+  }
+  ```
+  **Note:** The previous convention of using `detail` does not apply anymore.
 
 ### Performance-Critical Code
 
@@ -89,6 +96,13 @@ Non-performance-critical functions can live in `.cc` files to reduce compile tim
 - Prefer `requires` + `static_assert` over SFINAE and pre-C++20 template metaprogramming.
 - Explicitly prefix `cc::` even inside the library when taking templated arguments to prevent unintended ADL capture.
 - Non-trivial ADL usage must always be explicitly marked.
+- Use C++23 deducing `this` when it provides clearer or more efficient code:
+  ```cpp
+  struct example {
+      template <class Self>
+      auto&& get_value(this Self&& self) { return std::forward<Self>(self)._value; }
+  };
+  ```
 
 ### constexpr & noexcept
 
@@ -379,3 +393,5 @@ TEST("feature group")
 - [ ] No unnecessary `constexpr` or `noexcept`
 - [ ] Macros are justified
 - [ ] Tests written in nexus
+- [ ] Use `impl` namespace (not `detail`) for implementation details
+- [ ] Consider C++23 deducing `this` where appropriate

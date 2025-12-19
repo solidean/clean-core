@@ -1,11 +1,12 @@
 #pragma once
 
+// CAUTION: we need to prevent circular includes here!
 #include <clean-core/macros.hh>
 #include <clean-core/source_location.hh>
+#include <clean-core/string.hh>
+#include <clean-core/string_view.hh>
 
 #include <format> // NOLINT(unused-includes)
-#include <string>
-#include <string_view>
 
 // =========================================================================================================
 // CC_ASSERT - Runtime assertion with formatted message
@@ -130,7 +131,7 @@ namespace cc::impl
 // Called when an assertion fails
 // Prints diagnostic information to stderr
 // Note: does not abort, caller must follow with CC_BREAK_AND_ABORT()
-CC_COLD_FUNC void handle_assert_failure(std::string_view expression, std::string message, cc::source_location location);
+CC_COLD_FUNC void handle_assert_failure(cc::string_view expression, cc::string message, cc::source_location location);
 
 // Checks if a debugger is currently attached to the process
 // Platform-specific implementation (Windows: IsDebuggerPresent, Linux: /proc, macOS: sysctl)

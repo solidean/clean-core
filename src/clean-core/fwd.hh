@@ -47,4 +47,13 @@ using byte = std::byte;
 //   actual integers as long as we stay in bounds. Unsigned silently transitions to a different
 //   algebraic structure outside bounds, which causes subtle bugs.
 using isize = i64;
+
+//
+// Container
+//
+
+struct nullopt_t;
+template <class T>
+struct optional;
+
 } // namespace cc
