@@ -124,13 +124,11 @@ struct cc::memory_resource
     /// Allocate `bytes` with at least `alignment` alignment, never returning null for non-zero requests.
     /// bytes == 0 always returns nullptr.
     /// bytes > 0 always returns non-null; failure is fatal (assert/terminate) or throws.
-    /// bytes must be an integral multiple of alignment (required by std::aligned_alloc and others).
     cc::function_ptr<cc::byte*(isize bytes, isize alignment, void* userdata)> allocate_bytes = nullptr;
 
     /// Attempt to allocate `bytes` with at least `alignment` alignment, returning nullptr on failure.
     /// bytes == 0 always returns nullptr.
     /// bytes > 0 may return nullptr to signal allocation was not possible.
-    /// bytes must be an integral multiple of alignment (required by std::aligned_alloc and others).
     /// This provides an escape hatch for callers that must handle allocation failure explicitly.
     /// Implementations should prefer returning nullptr over fatal failure when feasible (best-effort).
     /// Wrappers are still permitted to fatally fail rather than return nullptr.
@@ -150,13 +148,11 @@ struct cc::memory_resource
     /// Preconditions:
     /// `p` was allocated from this resource with `old_bytes` and `alignment`.
     /// `1 <= min_bytes <= max_bytes`.
-    /// The range [min_bytes, max_bytes] must contain at least one integral multiple of `alignment`.
     ///
     /// Success (returns new_bytes in [min_bytes, max_bytes]):
     /// The allocation remains at address `p` (no move).
     /// The first min(old_bytes, new_bytes) bytes are preserved.
     /// The returned size becomes the canonical size for future resize/deallocate calls.
-    /// The returned new_bytes must be an integral multiple of `alignment` (same requirement as allocate).
     ///
     /// Failure (returns -1):
     /// The allocation remains valid and unchanged at `p` with size `old_bytes`.

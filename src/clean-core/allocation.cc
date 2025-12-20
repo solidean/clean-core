@@ -16,7 +16,6 @@ cc::byte* system_allocate_bytes(cc::isize bytes, cc::isize alignment, void* user
     CC_UNUSED(userdata);
 
     CC_ASSERT(alignment > 0 && cc::is_power_of_two(alignment), "alignment must be a power of 2");
-    CC_ASSERT(bytes == 0 || bytes % alignment == 0, "bytes must be an integral multiple of alignment");
 
     // Contract: bytes == 0 always returns nullptr
     if (bytes == 0)
@@ -28,7 +27,12 @@ cc::byte* system_allocate_bytes(cc::isize bytes, cc::isize alignment, void* user
 #ifdef CC_OS_WINDOWS
     p = static_cast<cc::byte*>(_aligned_malloc(bytes, alignment));
 #else
-    p = static_cast<cc::byte*>(std::aligned_alloc(alignment, bytes));
+    // Use posix_memalign instead of std::aligned_alloc to avoid the bytes % alignment == 0 requirement.
+    // posix_memalign requires alignment >= sizeof(void*), so we clamp to that minimum.
+    void* raw_ptr = nullptr;
+    cc::isize effective_alignment = alignment < sizeof(void*) ? sizeof(void*) : alignment;
+    int result = posix_memalign(&raw_ptr, effective_alignment, bytes);
+    p = result == 0 ? static_cast<cc::byte*>(raw_ptr) : nullptr;
 #endif
 
     CC_ASSERT(p != nullptr, "allocation failed: requested {} bytes with alignment {}", bytes, alignment);
@@ -40,7 +44,6 @@ cc::byte* system_try_allocate_bytes(cc::isize bytes, cc::isize alignment, void* 
     CC_UNUSED(userdata);
 
     CC_ASSERT(alignment > 0 && cc::is_power_of_two(alignment), "alignment must be a power of 2");
-    CC_ASSERT(bytes == 0 || bytes % alignment == 0, "bytes must be an integral multiple of alignment");
 
     // Contract: bytes == 0 always returns nullptr
     if (bytes == 0)
@@ -48,12 +51,16 @@ cc::byte* system_try_allocate_bytes(cc::isize bytes, cc::isize alignment, void* 
 
     // Use platform-specific aligned allocation:
     // - Windows: _aligned_malloc does not strictly require bytes % alignment == 0
-    // - POSIX: std::aligned_alloc strictly requires bytes % alignment == 0 (C11/C17 requirement)
-    // We enforce the stricter requirement for both platforms to ensure portability.
+    // - POSIX: posix_memalign does not require bytes % alignment == 0 (unlike std::aligned_alloc)
 #ifdef CC_OS_WINDOWS
     return static_cast<cc::byte*>(_aligned_malloc(bytes, alignment));
 #else
-    return static_cast<cc::byte*>(std::aligned_alloc(alignment, bytes));
+    // Use posix_memalign instead of std::aligned_alloc to avoid the bytes % alignment == 0 requirement.
+    // posix_memalign requires alignment >= sizeof(void*), so we clamp to that minimum.
+    void* raw_ptr = nullptr;
+    cc::isize effective_alignment = alignment < sizeof(void*) ? sizeof(void*) : alignment;
+    int result = posix_memalign(&raw_ptr, effective_alignment, bytes);
+    return result == 0 ? static_cast<cc::byte*>(raw_ptr) : nullptr;
 #endif
 }
 
@@ -86,11 +93,8 @@ cc::isize system_try_resize_bytes_in_place(cc::byte* p,
 
     CC_ASSERT(p != nullptr, "cannot resize null pointer");
     CC_ASSERT(alignment > 0 && cc::is_power_of_two(alignment), "alignment must be a power of 2");
-    CC_ASSERT(old_bytes > 0 && old_bytes % alignment == 0, "old_bytes must be a positive integral multiple of "
-                                                           "alignment");
+    CC_ASSERT(old_bytes > 0, "old_bytes must be positive");
     CC_ASSERT(1 <= min_bytes && min_bytes <= max_bytes, "must have 1 <= min_bytes <= max_bytes");
-    CC_ASSERT(cc::align_up(min_bytes, alignment) <= max_bytes, "range [min_bytes, max_bytes] must contain at least one "
-                                                               "integral multiple of alignment");
 
     CC_UNUSED(p);
     CC_UNUSED(old_bytes);
