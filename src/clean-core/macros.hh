@@ -130,16 +130,6 @@
 // CC_FORCE_INLINE_DEBUGGABLE - Inline in release, normal inline in debug (for debuggability)
 #define CC_FORCE_INLINE_DEBUGGABLE CC_IMPL_FORCE_INLINE_DEBUGGABLE
 
-// CC_CONDITION_LIKELY(x) - Hint that condition x is likely to be true
-// Usage: if CC_CONDITION_LIKELY(ptr != nullptr) { ... }
-// Note: No parentheses between 'if' and macro - MSVC version uses postfix attribute syntax
-#define CC_CONDITION_LIKELY(x) CC_IMPL_CONDITION_LIKELY(x)
-
-// CC_CONDITION_UNLIKELY(x) - Hint that condition x is unlikely to be true
-// Usage: if CC_CONDITION_UNLIKELY(error) { ... }
-// Note: No parentheses between 'if' and macro - MSVC version uses postfix attribute syntax
-#define CC_CONDITION_UNLIKELY(x) CC_IMPL_CONDITION_UNLIKELY(x)
-
 // CC_COLD_FUNC - Mark function as rarely executed (error paths, assertions)
 // Usage: CC_COLD_FUNC void handle_error() { ... }
 #define CC_COLD_FUNC CC_IMPL_COLD_FUNC
@@ -199,10 +189,6 @@
 #define CC_IMPL_FORCE_INLINE __forceinline
 #define CC_IMPL_DONT_INLINE __declspec(noinline)
 
-// these are supported in MSVC since March 2021, valid in C++14 and up (custom attributes)
-#define CC_IMPL_CONDITION_LIKELY(x) (x) [[msvc::likely]]
-#define CC_IMPL_CONDITION_UNLIKELY(x) (x) [[msvc::unlikely]]
-
 #define CC_IMPL_COLD_FUNC
 #define CC_IMPL_HOT_FUNC
 
@@ -217,9 +203,6 @@
 // additional 'inline' is required on gcc and makes no difference on clang
 #define CC_IMPL_FORCE_INLINE __attribute__((always_inline)) inline
 #define CC_IMPL_DONT_INLINE __attribute__((noinline))
-
-#define CC_IMPL_CONDITION_LIKELY(x) (__builtin_expect((x), 1))
-#define CC_IMPL_CONDITION_UNLIKELY(x) (__builtin_expect((x), 0))
 
 #define CC_IMPL_COLD_FUNC __attribute__((cold))
 #define CC_IMPL_HOT_FUNC __attribute__((hot))

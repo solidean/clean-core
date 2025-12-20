@@ -172,7 +172,7 @@ extern "C" int raise(int) noexcept;
 #define CC_IMPL_ASSERT_ALWAYS(cond, msg, ...)                                                     \
     do                                                                                            \
     {                                                                                             \
-        if CC_CONDITION_UNLIKELY (!(cond))                                                        \
+        if (!(cond)) [[unlikely]]                                                                 \
         {                                                                                         \
             ::cc::impl::handle_assert_failure(#cond, std::format(msg __VA_OPT__(, ) __VA_ARGS__), \
                                               ::cc::source_location::current());                  \

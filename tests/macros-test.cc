@@ -288,30 +288,6 @@ TEST("macros - CC_UNUSED does not evaluate")
 // Helper functions for testing CC_CONDITION_LIKELY/UNLIKELY and CC_PRETTY_FUNC
 namespace
 {
-int test_likely_branch(int* ptr)
-{
-    if CC_CONDITION_LIKELY (ptr != nullptr)
-    {
-        return *ptr;
-    }
-    else
-    {
-        return -1;
-    }
-}
-
-int test_unlikely_branch(int value)
-{
-    if CC_CONDITION_UNLIKELY (value < 0)
-    {
-        return 0;
-    }
-    else
-    {
-        return value;
-    }
-}
-
 char const* get_pretty_func_name()
 {
     return CC_PRETTY_FUNC;
@@ -341,25 +317,6 @@ void test_assume_statement(int* ptr)
 
 TEST("macros - statement syntax")
 {
-    SECTION("CC_CONDITION_LIKELY compiles and works")
-    {
-        int value = 42;
-        int result = test_likely_branch(&value);
-        CHECK(result == 42);
-
-        result = test_likely_branch(nullptr);
-        CHECK(result == -1);
-    }
-
-    SECTION("CC_CONDITION_UNLIKELY compiles and works")
-    {
-        int result = test_unlikely_branch(10);
-        CHECK(result == 10);
-
-        result = test_unlikely_branch(-5);
-        CHECK(result == 0);
-    }
-
     SECTION("CC_ASSUME compiles as statement")
     {
         int value = 0;
