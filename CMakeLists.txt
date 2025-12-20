@@ -6,6 +6,7 @@ project(clean-core LANGUAGES CXX)
 
 # Define the library and its sources
 add_library(clean-core
+    src/clean-core/allocation.cc
     src/clean-core/assert.cc
     src/clean-core/dummy.cc
     src/clean-core/to_string.cc

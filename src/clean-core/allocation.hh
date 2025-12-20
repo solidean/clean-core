@@ -1,6 +1,16 @@
 #pragma once
 
 #include <clean-core/fwd.hh>
+#include <clean-core/utility.hh>
+
+
+namespace cc
+{
+/// Default memory resource used when allocation::custom_resource == nullptr.
+/// This is a system allocator stored in the data segment, making the pointer valid even during
+/// static initialization in other translation units (safe for use in global/static constructors).
+extern cc::memory_resource const* const default_memory_resource;
+} // namespace cc
 
 /// Owning allocation handle for a contiguous byte block plus a typed "live window" inside it.
 ///
@@ -95,5 +105,77 @@ struct cc::allocation
     ///
     /// Containers can select a non-default resource without cluttering APIs by seeding an empty
     /// allocation that carries the desired resource; subsequent growth/reallocation uses that resource.
-    cc::memory_resource* resource = nullptr;
+    cc::memory_resource const* custom_resource = nullptr;
+
+    /// Returns the effective resource to use for allocation operations.
+    /// Resolves custom_resource if non-null, otherwise falls back to default_memory_resource.
+    cc::memory_resource const& resource() const
+    {
+        return custom_resource ? *custom_resource : *default_memory_resource;
+    }
+};
+
+/// Polymorphic memory resource interface powering cc::allocation<T>.
+/// Custom allocators implement this interface to provide pluggable allocation strategies.
+/// The design favors explicit size/alignment tracking and non-movable in-place resize over realloc.
+/// This is a POD struct using function pointers to avoid virtual dispatch and non-trivial constructors.
+struct cc::memory_resource
+{
+    /// Allocate `bytes` with at least `alignment` alignment, never returning null for non-zero requests.
+    /// bytes == 0 always returns nullptr.
+    /// bytes > 0 always returns non-null; failure is fatal (assert/terminate) or throws.
+    /// bytes must be an integral multiple of alignment (required by std::aligned_alloc and others).
+    cc::function_ptr<cc::byte*(isize bytes, isize alignment, void* userdata)> allocate_bytes = nullptr;
+
+    /// Attempt to allocate `bytes` with at least `alignment` alignment, returning nullptr on failure.
+    /// bytes == 0 always returns nullptr.
+    /// bytes > 0 may return nullptr to signal allocation was not possible.
+    /// bytes must be an integral multiple of alignment (required by std::aligned_alloc and others).
+    /// This provides an escape hatch for callers that must handle allocation failure explicitly.
+    /// Implementations should prefer returning nullptr over fatal failure when feasible (best-effort).
+    /// Wrappers are still permitted to fatally fail rather than return nullptr.
+    cc::function_ptr<cc::byte*(isize bytes, isize alignment, void* userdata)> try_allocate_bytes = nullptr;
+
+    /// Deallocate a block previously obtained from this resource with matching bytes and alignment.
+    /// `p` must be the exact pointer returned by allocate_bytes or try_allocate_bytes.
+    /// `bytes` and `alignment` must match the values used during allocation.
+    /// Noexcept in spirit: only programmer bugs (e.g., mismatched size) may throw or terminate.
+    /// Allocator exhaustion itself must not throw; containers may leak memory if this throws.
+    cc::function_ptr<void(cc::byte* p, isize bytes, isize alignment, void* userdata)> deallocate_bytes = nullptr;
+
+    /// Attempt to resize an existing allocation in place without moving or freeing it.
+    /// This optimization hook enables contiguous containers to grow/shrink without invalidating iterators.
+    /// The resize range [min_bytes, max_bytes] lets the resource choose any size fitting internal constraints.
+    ///
+    /// Preconditions:
+    /// `p` was allocated from this resource with `old_bytes` and `alignment`.
+    /// `1 <= min_bytes <= max_bytes`.
+    /// The range [min_bytes, max_bytes] must contain at least one integral multiple of `alignment`.
+    ///
+    /// Success (returns new_bytes in [min_bytes, max_bytes]):
+    /// The allocation remains at address `p` (no move).
+    /// The first min(old_bytes, new_bytes) bytes are preserved.
+    /// The returned size becomes the canonical size for future resize/deallocate calls.
+    /// The returned new_bytes must be an integral multiple of `alignment` (same requirement as allocate).
+    ///
+    /// Failure (returns -1):
+    /// The allocation remains valid and unchanged at `p` with size `old_bytes`.
+    /// Ownership remains with the caller; the resource does not free or invalidate `p`.
+    ///
+    /// Supports both growth (min_bytes > old_bytes) and shrink (max_bytes < old_bytes).
+    /// Shrink success does not guarantee memory returned to OS; only updates logical allocation size.
+    /// Prefer returning the smallest representable size >= min_bytes to minimize memory waste.
+    /// `alignment` cannot be increased; it matches the original allocation.
+    ///
+    /// Rationale: Traditional realloc may move and implicitly free the original allocation.
+    /// This is unsafe for containers where element addresses must remain stable during reallocation.
+    /// Example: vector::push_back(vec[0]) where the source aliases the container's storage.
+    ///
+    /// Noexcept in spirit: only programmer bugs (e.g., mismatched old_bytes) may throw or terminate.
+    /// Allocator exhaustion itself must not throw; containers may leak memory if this throws.
+    cc::function_ptr<isize(cc::byte* p, isize old_bytes, isize min_bytes, isize max_bytes, isize alignment, void* userdata)>
+        try_resize_bytes_in_place = nullptr;
+
+    /// User-defined data for custom allocators. Can be nullptr for stateless allocators.
+    void* userdata = nullptr;
 };

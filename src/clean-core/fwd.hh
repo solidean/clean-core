@@ -61,7 +61,6 @@ using nullptr_t = std::nullptr_t;
 //
 
 struct memory_resource;
-
 template <class T>
 struct allocation;
 
