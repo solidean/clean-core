@@ -110,7 +110,7 @@ cc::isize system_try_resize_bytes_in_place(cc::byte* p,
 /// This is the default fallback when cc::allocation<T>::custom_resource is nullptr.
 /// Stored in the data segment (not on heap) so it remains valid during static initialization,
 /// making cc::default_memory_resource safe to use in global/static constructors.
-constexpr cc::memory_resource system_memory_resource = {
+constinit cc::memory_resource const system_memory_resource = {
     .allocate_bytes = system_allocate_bytes,
     .try_allocate_bytes = system_try_allocate_bytes,
     .deallocate_bytes = system_deallocate_bytes,
@@ -120,4 +120,4 @@ constexpr cc::memory_resource system_memory_resource = {
 
 } // namespace
 
-cc::memory_resource const* const cc::default_memory_resource = &system_memory_resource;
+constinit cc::memory_resource const* const cc::default_memory_resource = &system_memory_resource;
