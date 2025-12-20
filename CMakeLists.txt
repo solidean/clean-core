@@ -23,12 +23,14 @@ target_sources(clean-core
     BASE_DIRS "${CMAKE_CURRENT_SOURCE_DIR}/src"
     FILES
     src/clean-core/array.hh
+    src/clean-core/allocation.hh
     src/clean-core/assert.hh
     src/clean-core/assert-handler.hh
     src/clean-core/fwd.hh
     src/clean-core/macros.hh
     src/clean-core/optional.hh
     src/clean-core/source_location.hh
+    src/clean-core/span.hh
     src/clean-core/stacktrace.hh
     src/clean-core/to_string.hh
     src/clean-core/to_debug_string.hh
@@ -78,6 +80,7 @@ add_executable(clean-core-test
     tests/assert-test.cc
     tests/macros-test.cc
     tests/optional-test.cc
+    tests/span-test.cc
     tests/to_debug_string-test.cc
     tests/utility-test.cc
 )

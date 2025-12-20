@@ -6,6 +6,11 @@
 
 namespace cc
 {
+
+//
+// Primitives
+//
+
 // Explicitly-sized primitive types
 // We encourage using these types wherever the range is important for correctness or memory layout.
 // However, we happily use "int" as a default integer if the range doesn't matter much
@@ -47,6 +52,28 @@ using byte = std::byte;
 //   actual integers as long as we stay in bounds. Unsigned silently transitions to a different
 //   algebraic structure outside bounds, which causes subtle bugs.
 using isize = i64;
+
+// pointer
+using nullptr_t = std::nullptr_t;
+
+//
+// Memory
+//
+
+struct memory_resource;
+
+template <class T>
+struct allocation;
+
+
+//
+// Views
+//
+
+template <class T>
+struct span;
+template <class T, isize N>
+struct fixed_span;
 
 //
 // Container
