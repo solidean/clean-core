@@ -1,6 +1,6 @@
 #include "allocation.hh"
 
-#include <clean-core/assert.hh>
+#include <clean-core/assertf.hh>
 #include <clean-core/macros.hh>
 #include <clean-core/utility.hh>
 
@@ -35,7 +35,7 @@ cc::byte* system_allocate_bytes(cc::isize bytes, cc::isize alignment, void* user
     p = result == 0 ? static_cast<cc::byte*>(raw_ptr) : nullptr;
 #endif
 
-    CC_ASSERT(p != nullptr, "allocation failed: requested {} bytes with alignment {}", bytes, alignment);
+    CC_ASSERTF(p != nullptr, "allocation failed: requested {} bytes with alignment {}", bytes, alignment);
     return p;
 }
 

@@ -1,9 +1,11 @@
 #include <clean-core/assert-handler.hh>
-#include <clean-core/assert.hh>
+#include <clean-core/assertf.hh>
+
 #include <nexus/test.hh>
 
 #include <optional>
 #include <vector>
+
 
 TEST("assertions - failing assertion calls handler with correct payload")
 {
@@ -20,7 +22,7 @@ TEST("assertions - failing assertion calls handler with correct payload")
             });
         try
         {
-            CC_ASSERT_ALWAYS(false, "hello {}", 42);
+            CC_ASSERTF_ALWAYS(false, "hello {}", 42);
         }
         catch (int) // NOLINT(bugprone-empty-catch)
         {
@@ -61,7 +63,7 @@ TEST("assertions - passing assertion does not call handler")
     {
         auto handler
             = cc::impl::scoped_assertion_handler([&](cc::impl::assertion_info const&) { handler_called = true; });
-        CC_ASSERT_ALWAYS(true, "should not matter {}", expensive());
+        CC_ASSERTF_ALWAYS(true, "should not matter {}", expensive());
     }
 
     CHECK(!handler_called);

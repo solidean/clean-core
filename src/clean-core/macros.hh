@@ -24,7 +24,7 @@
 // =========================================================================================================
 // Compilation modes
 // =========================================================================================================
-// Conditionally defined: CC_HAS_RTTI, CC_HAS_CPP_EXCEPTIONS
+// Conditionally defined: CC_HAS_RTTI, CC_HAS_CPP_EXCEPTIONS, CC_ASSERT_ENABLED
 // From CMake: CC_DEBUG, CC_RELEASE, CC_RELWITHDEBINFO
 
 #ifdef CC_COMPILER_MSVC
@@ -48,6 +48,15 @@
 #if __EXCEPTIONS
 #define CC_HAS_CPP_EXCEPTIONS
 #endif
+#endif
+
+// CC_ASSERT_ENABLED - Assertions are active (0 or 1)
+// Assertions are enabled in debug and release-with-debug-info builds by default
+// Can be explicitly enabled in release builds with CC_ENABLE_ASSERT_IN_RELEASE
+#if defined(CC_DEBUG) || defined(CC_RELWITHDEBINFO) || defined(CC_ENABLE_ASSERT_IN_RELEASE)
+#define CC_ASSERT_ENABLED 1
+#else
+#define CC_ASSERT_ENABLED 0
 #endif
 
 // =========================================================================================================

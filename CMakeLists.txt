@@ -26,6 +26,7 @@ target_sources(clean-core
     src/clean-core/array.hh
     src/clean-core/allocation.hh
     src/clean-core/assert.hh
+    src/clean-core/assertf.hh
     src/clean-core/assert-handler.hh
     src/clean-core/fwd.hh
     src/clean-core/macros.hh

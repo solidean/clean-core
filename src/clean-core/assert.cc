@@ -2,10 +2,12 @@
 
 #include <clean-core/assert-handler.hh>
 #include <clean-core/stacktrace.hh>
+#include <clean-core/string.hh>
 
 #include <cstdio>
 #include <cstdlib>
 #include <iostream>
+#include <string>
 #include <vector>
 
 #ifdef CC_COMPILER_MSVC
@@ -60,13 +62,12 @@ cc::impl::scoped_assertion_handler::~scoped_assertion_handler()
     pop_assertion_handler();
 }
 
-CC_COLD_FUNC void cc::impl::handle_assert_failure(std::string_view expression,
-                                                  std::string message,
-                                                  cc::source_location location)
+// Overload for string literals (used by assert.hh)
+CC_COLD_FUNC void cc::impl::handle_assert_failure(char const* expression, char const* message, cc::source_location location)
 {
     assertion_info const info{
         .expression = std::string(expression),
-        .message = std::move(message),
+        .message = std::string(message),
         .location = location,
     };
 

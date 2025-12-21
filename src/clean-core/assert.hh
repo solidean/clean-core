@@ -1,24 +1,22 @@
 #pragma once
 
-// CAUTION: we need to prevent circular includes here!
+// This is a very lean header with minimal dependencies - easy to include everywhere and low cost.
+// For formatted assertions with std::format support, use <clean-core/assertf.hh> instead.
 #include <clean-core/macros.hh>
 #include <clean-core/source_location.hh>
-#include <clean-core/string.hh>
-#include <clean-core/string_view.hh>
-
-#include <format> // NOLINT(unused-includes)
 
 // =========================================================================================================
-// CC_ASSERT - Runtime assertion with formatted message
+// CC_ASSERT - Runtime assertion with string literal message
 //
 // Validates a condition at runtime and triggers a debugger break + abort on failure.
 //
 // Features:
-//   - Formatted error messages using std::format
+//   - Simple string literal error messages (no formatting dependencies)
 //   - Automatic source location capture (file, line, function)
 //   - Debugger integration: breaks into debugger when attached, otherwise aborts
 //   - Expression stringification for clear error reporting
 //   - Active in debug and release-with-debug-info builds by default (we believe in more checks)
+//   - Minimal dependencies - does not include string or format headers
 //
 // When assertions are active:
 //   Assertions are enabled in CC_DEBUG and CC_RELWITHDEBINFO builds.
@@ -45,8 +43,8 @@
 //
 // Usage:
 //   CC_ASSERT(ptr != nullptr, "pointer must not be null");
-//   CC_ASSERT(size > 0, "size must be positive, got {}", size);
-//   CC_ASSERT(idx < array.size(), "index {} out of bounds (size: {})", idx, array.size());
+//   CC_ASSERT(size > 0, "size must be positive");
+//   CC_ASSERT(idx < array.size(), "index out of bounds");
 //
 //   void process(int* data, size_t count)
 //   {
@@ -56,14 +54,17 @@
 //       CC_ASSERT(result_valid(), "postcondition violated");      // postcondition
 //   }
 //
+// Note:
+//   For formatted messages with arguments, use CC_ASSERTF from <clean-core/assertf.hh>
+//
 // Rationale:
 //   Unlike standard assert(), CC_ASSERT provides:
-//     - Rich formatting capabilities for diagnostic messages
 //     - Better debugger integration (breaks at assertion site, not in abort())
 //     - Configurable behavior across build configurations
 //     - Source location without macros like __FILE__ and __LINE__
+//     - Minimal dependencies for use in low-level code
 //
-#define CC_ASSERT(cond, msg, ...) CC_IMPL_ASSERT(cond, msg, ##__VA_ARGS__)
+#define CC_ASSERT(cond, msg) CC_IMPL_ASSERT(cond, msg)
 
 // =========================================================================================================
 // CC_ASSERT_ALWAYS - Always-active assertion
@@ -73,9 +74,12 @@
 //
 // Usage:
 //   CC_ASSERT_ALWAYS(critical_ptr != nullptr, "critical invariant violated");
-//   CC_ASSERT_ALWAYS(size <= MAX_SIZE, "exceeded absolute size limit: {}", size);
+//   CC_ASSERT_ALWAYS(size <= MAX_SIZE, "exceeded absolute size limit");
 //
-#define CC_ASSERT_ALWAYS(cond, msg, ...) CC_IMPL_ASSERT_ALWAYS(cond, msg, ##__VA_ARGS__)
+// Note:
+//   For formatted messages with arguments, use CC_ASSERTF_ALWAYS from <clean-core/assertf.hh>
+//
+#define CC_ASSERT_ALWAYS(cond, msg) CC_IMPL_ASSERT_ALWAYS(cond, msg)
 
 // =========================================================================================================
 // CC_DEBUG_BREAK - Conditional debugger breakpoint
@@ -131,7 +135,7 @@ namespace cc::impl
 // Called when an assertion fails
 // Prints diagnostic information to stderr
 // Note: does not abort, caller must follow with CC_BREAK_AND_ABORT()
-CC_COLD_FUNC void handle_assert_failure(cc::string_view expression, cc::string message, cc::source_location location);
+CC_COLD_FUNC void handle_assert_failure(char const* expression, char const* message, cc::source_location location);
 
 // Checks if a debugger is currently attached to the process
 // Platform-specific implementation (Windows: IsDebuggerPresent, Linux: /proc, macOS: sysctl)
@@ -169,33 +173,32 @@ extern "C" int raise(int) noexcept;
 #endif
 
 // CC_ASSERT_ALWAYS implementation - always enabled regardless of build configuration
-#define CC_IMPL_ASSERT_ALWAYS(cond, msg, ...)                                                     \
-    do                                                                                            \
-    {                                                                                             \
-        if (!(cond)) [[unlikely]]                                                                 \
-        {                                                                                         \
-            ::cc::impl::handle_assert_failure(#cond, std::format(msg __VA_OPT__(, ) __VA_ARGS__), \
-                                              ::cc::source_location::current());                  \
-            CC_BREAK_AND_ABORT();                                                                 \
-        }                                                                                         \
+#define CC_IMPL_ASSERT_ALWAYS(cond, msg)                                                     \
+    do                                                                                       \
+    {                                                                                        \
+        if (!(cond)) [[unlikely]]                                                            \
+        {                                                                                    \
+            ::cc::impl::handle_assert_failure(#cond, msg, ::cc::source_location::current()); \
+            CC_BREAK_AND_ABORT();                                                            \
+        }                                                                                    \
     } while (false)
 
 // Assert implementation - enabled in debug/relwithdebinfo, optionally in release
 
-#if defined(CC_DEBUG) || defined(CC_RELWITHDEBINFO) || defined(CC_ENABLE_ASSERT_IN_RELEASE)
+#if CC_ASSERT_ENABLED
 
 // Delegate to CC_IMPL_ASSERT_ALWAYS when assertions are enabled
-#define CC_IMPL_ASSERT(cond, msg, ...) CC_IMPL_ASSERT_ALWAYS(cond, msg, ##__VA_ARGS__)
+#define CC_IMPL_ASSERT(cond, msg) CC_IMPL_ASSERT_ALWAYS(cond, msg)
 
 #else
 
 // In release builds without CC_ENABLE_ASSERT_IN_RELEASE, assertions are stripped
-// We still use the format string to ensure it compiles correctly
-#define CC_IMPL_ASSERT(cond, msg, ...)                          \
-    do                                                          \
-    {                                                           \
-        CC_UNUSED(cond);                                        \
-        CC_UNUSED(std::format(msg __VA_OPT__(, ) __VA_ARGS__)); \
+// We still evaluate the message to ensure it compiles correctly
+#define CC_IMPL_ASSERT(cond, msg) \
+    do                            \
+    {                             \
+        CC_UNUSED(cond);          \
+        CC_UNUSED(msg);           \
     } while (false)
 
 #endif

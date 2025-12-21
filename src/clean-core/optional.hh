@@ -4,6 +4,7 @@
 #include <clean-core/fwd.hh>
 #include <clean-core/utility.hh>
 
+#include <type_traits>
 
 struct cc::nullopt_t
 {
