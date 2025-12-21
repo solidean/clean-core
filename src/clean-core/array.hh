@@ -4,10 +4,13 @@
 #include <clean-core/assert.hh>
 #include <clean-core/fwd.hh>
 
+#include <utility>
+
 // TODO:
 // - sequence entry points
 // - retyping APIs
 // - resize APIs? -> would be totally fine I think
+// - equality, order, hashing
 
 
 /// Dynamically allocated array of T elements with value semantics.
@@ -171,6 +174,24 @@ public:
     [[nodiscard]] constexpr isize size() const { return N; }
     /// Returns true if N == 0 (compile-time constant).
     [[nodiscard]] constexpr bool empty() const { return N == 0; }
+
+    // tuple protocol
+public:
+    /// Returns a reference to the I-th element.
+    /// Supports std::get<I>(arr) and structured bindings.
+    /// Requires 0 <= I < N (compile-time check).
+    template <isize I>
+    [[nodiscard]] constexpr T& get()
+    {
+        static_assert(0 <= I && I < N, "index out of bounds");
+        return _data[I];
+    }
+    template <isize I>
+    [[nodiscard]] constexpr T const& get() const
+    {
+        static_assert(0 <= I && I < N, "index out of bounds");
+        return _data[I];
+    }
 };
 
 /// Specialization for N == 0 (empty array).
@@ -219,4 +240,18 @@ public:
     [[nodiscard]] constexpr isize size() const { return 0; }
     /// Returns true.
     [[nodiscard]] constexpr bool empty() const { return true; }
+};
+
+/// Specialization of std::tuple_size for fixed_array to enable structured bindings.
+template <class T, cc::isize N>
+struct std::tuple_size<cc::fixed_array<T, N>> : std::integral_constant<std::size_t, static_cast<std::size_t>(N)>
+{
+};
+
+/// Specialization of std::tuple_element for fixed_array to enable structured bindings.
+/// All elements have type T.
+template <std::size_t I, class T, cc::isize N>
+struct std::tuple_element<I, cc::fixed_array<T, N>>
+{
+    using type = T;
 };
