@@ -39,7 +39,7 @@ cc::byte* system_try_allocate_bytes(cc::isize bytes, cc::isize alignment, void* 
 cc::byte* system_allocate_bytes(cc::isize bytes, cc::isize alignment, void* userdata)
 {
     auto const p = system_try_allocate_bytes(bytes, alignment, userdata);
-    CC_ASSERTF(p != nullptr, "allocation failed: requested {} bytes with alignment {}", bytes, alignment);
+    CC_ASSERTF(bytes == 0 || p != nullptr, "allocation failed: requested {} bytes with alignment {}", bytes, alignment);
     return p;
 }
 

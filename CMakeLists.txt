@@ -79,6 +79,7 @@ target_link_libraries(clean-core
 # Test executable
 add_executable(clean-core-test
     tests/main.cc
+    tests/array-test.cc
     tests/assert-test.cc
     tests/macros-test.cc
     tests/optional-test.cc

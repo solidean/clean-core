@@ -8,10 +8,14 @@
 static_assert(std::is_trivially_copyable_v<cc::span<int>>, "span should be trivially copyable");
 static_assert(std::is_trivially_copyable_v<cc::fixed_span<int, 5>>, "fixed_span should be trivially copyable");
 
+// verify implicit conversion from span<T> to span<T const>
+static_assert(std::is_convertible_v<cc::span<int>, cc::span<int const>>,
+              "span<int> should be implicitly convertible to span<int const>");
+
 // verify triviality even with non-trivial element type
 namespace
 {
-struct non_trivial
+struct non_trivial // NOLINT
 {
     int value = 0;
     ~non_trivial() {} // makes it non-trivial

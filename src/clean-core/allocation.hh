@@ -19,7 +19,7 @@ namespace cc::impl
 /// Empty ranges (start == end) and nullptr are valid and result in a no-op.
 /// Trivially destructible types are optimized out at compile time.
 template <class T>
-void destroy_objects_in_reverse(T* start, T* end)
+constexpr void destroy_objects_in_reverse(T* start, T* end)
 {
     static_assert(sizeof(T) > 0, "T must be a complete type (did you forget to include a header?)");
 
@@ -30,6 +30,59 @@ void destroy_objects_in_reverse(T* start, T* end)
             --end;
             end->~T();
         }
+    }
+}
+
+/// Default-constructs a count of objects using placement new.
+/// dest_end is incremented for each successfully constructed object.
+/// IMPORTANT: Assumes the objects at [*dest_end, *dest_end + count) are NOT yet constructed
+/// (uninitialized memory). This function initializes the lifetime of objects starting at *dest_end. If default
+/// construction throws, dest_end points to the element that threw (not yet constructed). If no exception occurs,
+/// dest_end is updated to one past the last constructed object. count == 0 is valid and results in a no-op.
+/// All objects are properly initialized via T(), which ensures zero-initialization for trivial types (e.g., int).
+///
+/// Usage pattern:
+///   auto obj_start = (T*)uninitialized_memory;
+///   auto obj_end = obj_start;
+///   default_create_objects_to(obj_end, count);
+///   // [obj_start, obj_end) is now the constructed live range
+template <class T>
+constexpr void default_create_objects_to(T*& dest_end, isize count)
+{
+    static_assert(sizeof(T) > 0, "T must be a complete type (did you forget to include a header?)");
+    static_assert(std::is_default_constructible_v<T>, "T must be default constructible");
+
+    // Always construct with T() to ensure proper initialization
+    // (for trivial types like int, this ensures zero-initialization)
+    for (isize i = 0; i < count; ++i)
+    {
+        new (cc::placement_new, dest_end) T();
+        ++dest_end;
+    }
+}
+
+/// Fill-constructs a count of objects by copy-constructing from a single value using placement new.
+/// dest_end is incremented for each successfully constructed object.
+/// IMPORTANT: Assumes the objects at [*dest_end, *dest_end + count) are NOT yet constructed
+/// (uninitialized memory). This function initializes the lifetime of objects starting at *dest_end. If copy
+/// construction throws, dest_end points to the element that threw (not yet constructed). If no exception occurs,
+/// dest_end is updated to one past the last constructed object. count == 0 is valid and results in a no-op.
+///
+/// Usage pattern:
+///   auto obj_start = (T*)uninitialized_memory;
+///   auto obj_end = obj_start;
+///   fill_create_objects_to(obj_end, count, value);
+///   // [obj_start, obj_end) is now the constructed live range, each element a copy of value
+template <class T>
+constexpr void fill_create_objects_to(T*& dest_end, isize count, T const& value)
+{
+    static_assert(sizeof(T) > 0, "T must be a complete type (did you forget to include a header?)");
+    static_assert(std::is_copy_constructible_v<T>, "T must be copy constructible");
+
+    for (isize i = 0; i < count; ++i)
+    {
+        new (cc::placement_new, dest_end) T(value);
+        ++dest_end;
     }
 }
 
@@ -47,9 +100,10 @@ void destroy_objects_in_reverse(T* start, T* end)
 ///   copy_create_objects_to(obj_end, src, src + count);
 ///   // [obj_start, obj_end) is now the constructed live range
 template <class T>
-void copy_create_objects_to(T*& dest_end, T const* src_start, T const* src_end)
+constexpr void copy_create_objects_to(T*& dest_end, T const* src_start, T const* src_end)
 {
     static_assert(sizeof(T) > 0, "T must be a complete type (did you forget to include a header?)");
+    static_assert(std::is_copy_constructible_v<T>, "T must be copy constructible");
 
     if constexpr (std::is_trivially_copyable_v<T>)
     {
@@ -84,9 +138,10 @@ void copy_create_objects_to(T*& dest_end, T const* src_start, T const* src_end)
 ///   copy_assign_objects_to(obj_end, src, src + count);
 ///   // [obj_start, obj_end) is now the validly assigned range
 template <class T>
-void copy_assign_objects_to(T*& dest_end, T const* src_start, T const* src_end)
+constexpr void copy_assign_objects_to(T*& dest_end, T const* src_start, T const* src_end)
 {
     static_assert(sizeof(T) > 0, "T must be a complete type (did you forget to include a header?)");
+    static_assert(std::is_copy_assignable_v<T>, "T must be copy assignable");
 
     if constexpr (std::is_trivially_copyable_v<T>)
     {
@@ -105,6 +160,30 @@ void copy_assign_objects_to(T*& dest_end, T const* src_start, T const* src_end)
             ++dest_end;
             ++src_start;
         }
+    }
+}
+
+/// Fill-assigns a count of objects by copy-assigning from a single value using copy assignment operator.
+/// dest_end is incremented for each successfully assigned object.
+/// IMPORTANT: Assumes the objects at [*dest_end, *dest_end + count) are already constructed (alive).
+/// If copy assignment throws, dest_end points to the element that threw (partially modified state).
+/// If no exception occurs, dest_end is updated to one past the last assigned object.
+/// count == 0 is valid and results in a no-op.
+///
+/// Usage pattern:
+///   auto obj_end = obj_start;
+///   fill_assign_objects_to(obj_end, count, value);
+///   // [obj_start, obj_end) is now the validly assigned range, each element a copy of value
+template <class T>
+constexpr void fill_assign_objects_to(T*& dest_end, isize count, T const& value)
+{
+    static_assert(sizeof(T) > 0, "T must be a complete type (did you forget to include a header?)");
+    static_assert(std::is_copy_assignable_v<T>, "T must be copy assignable");
+
+    for (isize i = 0; i < count; ++i)
+    {
+        *dest_end = value;
+        ++dest_end;
     }
 }
 } // namespace cc::impl
@@ -281,6 +360,9 @@ public:
     /// Returns the number of live objects
     [[nodiscard]] isize obj_size() const { return obj_end - obj_start; }
 
+    /// Returns the live object size in bytes
+    [[nodiscard]] isize obj_size_bytes() const { return (obj_end - obj_start) * sizeof(T); }
+
     /// Returns true if there are any live objects
     [[nodiscard]] bool has_objects() const { return obj_start != obj_end; }
 
@@ -336,26 +418,25 @@ public:
 
     // factories
 public:
-    /// Creates a deep copy of another allocation using the specified memory resource.
+    /// Creates an empty allocation with reserved capacity but no live objects.
     ///
-    /// Copies only the live object range [rhs.obj_start, rhs.obj_end), not the full capacity.
-    /// The result is a "tight" allocation: allocated bytes exactly match live object count,
-    /// with obj_start and obj_end spanning the full allocated range (no spare capacity).
+    /// Allocates space for 'size' objects with the specified alignment, but does not construct any objects.
+    /// The result has obj_start == obj_end == alloc_start (zero live objects, full capacity available).
+    /// This is useful for containers that want to reserve memory upfront and construct objects incrementally.
     ///
-    /// Objects are copy-constructed via copy_create_objects_to.
-    /// Alignment is set to alignof(T).
-    ///
-    /// The resource parameter may differ from rhs.custom_resource, enabling cross-resource copies.
-    /// Empty allocations (size == 0) result in nullptr with no real allocation call.
-    [[nodiscard]] static allocation create_copy_of(allocation const& rhs, memory_resource const* resource)
+    /// The alignment parameter allows over-alignment beyond alignof(T).
+    /// size == 0 results in nullptr with no real allocation call.
+    [[nodiscard]] static allocation create_empty(isize size, isize alignment, memory_resource const* resource) // NOLINT
     {
+        CC_ASSERT(alignment >= alignof(T), "alignment must be at least alignof(T)");
+        CC_ASSERT(size >= 0, "size must be non-negative");
+
         allocation result;
         result.custom_resource = resource;
-        result.alignment = alignof(T);
+        result.alignment = alignment;
 
-        // Calculate the number of live objects to copy
-        auto const obj_count = rhs.obj_end - rhs.obj_start;
-        auto const byte_size = obj_count * sizeof(T);
+        // Calculate the number of bytes to allocate
+        auto const byte_size = size * sizeof(T);
 
         // Resolve the actual resource to use
         auto const& res = resource ? *resource : *default_memory_resource;
@@ -364,24 +445,134 @@ public:
         result.alloc_start = res.allocate_bytes(byte_size, result.alignment, res.userdata);
         result.alloc_end = result.alloc_start + byte_size;
 
-        // Initialize obj_start to the allocation base and obj_end to obj_start (empty initial state)
-        // This ensures [obj_start, obj_end) remains a valid live range even if copy construction throws
+        // Initialize obj_start and obj_end to alloc_start (zero live objects, full capacity)
         result.obj_start = (T*)result.alloc_start;
         result.obj_end = result.obj_start;
 
-        // Copy-construct objects from rhs into the new allocation
-        // obj_end is incremented for each successful construction
-        // On success: obj_end == alloc_end (tight allocation with no spare capacity)
-        // On exception: [obj_start, obj_end) contains only the successfully constructed objects
-        impl::copy_create_objects_to(result.obj_end, rhs.obj_start, rhs.obj_end);
-
         return result;
+    }
+
+    /// Creates an allocation with a specified count of default-constructed objects.
+    ///
+    /// Allocates space for 'size' objects and default-constructs all of them.
+    /// The result is a "tight" allocation: allocated bytes exactly match live object count,
+    /// with obj_start and obj_end spanning the full allocated range (no spare capacity).
+    ///
+    /// Objects are default-constructed via default_create_objects_to, which uses T().
+    /// This ensures zero-initialization for primitive types (e.g., int, float, pointers).
+    /// Alignment is set to alignof(T).
+    ///
+    /// Empty allocations (size == 0) result in nullptr with no real allocation call.
+    [[nodiscard]] static allocation create_defaulted(isize size, memory_resource const* resource)
+    {
+        auto result = allocation::create_empty(size, alignof(T), resource);
+        impl::default_create_objects_to(result.obj_end, size);
+        return result;
+    }
+
+    /// Creates an allocation with a specified count of objects, all copy-constructed from a single value.
+    ///
+    /// Allocates space for 'size' objects and copy-constructs all of them from 'value'.
+    /// The result is a "tight" allocation: allocated bytes exactly match live object count,
+    /// with obj_start and obj_end spanning the full allocated range (no spare capacity).
+    ///
+    /// Objects are copy-constructed via fill_create_objects_to.
+    /// Alignment is set to alignof(T).
+    ///
+    /// Empty allocations (size == 0) result in nullptr with no real allocation call.
+    [[nodiscard]] static allocation create_filled(isize size, T const& value, memory_resource const* resource)
+    {
+        auto result = allocation::create_empty(size, alignof(T), resource);
+        impl::fill_create_objects_to(result.obj_end, size, value);
+        return result;
+    }
+
+    /// Creates an allocation with uninitialized memory treated as live objects.
+    ///
+    /// Allocates space for 'size' objects but does NOT construct them. Instead, obj_end is set to
+    /// the end of the allocation, treating the uninitialized memory as if it contains live objects.
+    /// The result is a "tight" allocation: allocated bytes exactly match the live object range,
+    /// with obj_start and obj_end spanning the full allocated range (no spare capacity).
+    ///
+    /// IMPORTANT: This is only safe for trivially copyable and trivially destructible types,
+    /// as enforced by static assertions. The caller is responsible for properly initializing
+    /// the memory before reading from it (e.g., via memcpy or direct writes).
+    ///
+    /// Alignment is set to alignof(T).
+    /// Empty allocations (size == 0) result in nullptr with no real allocation call.
+    [[nodiscard]] static allocation create_uninitialized(isize size, memory_resource const* resource)
+    {
+        static_assert(std::is_trivially_copyable_v<T>, "T must be trivially copyable for uninitialized allocation");
+        static_assert(std::is_trivially_destructible_v<T>, "T must be trivially destructible for uninitialized "
+                                                           "allocation");
+
+        auto result = allocation::create_empty(size, alignof(T), resource);
+        result.obj_end = result.obj_start + size;
+        return result;
+    }
+
+    /// Creates an allocation with uninitialized memory treated as live objects (UNSAFE).
+    ///
+    /// Allocates space for 'size' objects but does NOT construct them. Instead, obj_end is set to
+    /// the end of the allocation, treating the uninitialized memory as if it contains live objects.
+    /// The result is a "tight" allocation: allocated bytes exactly match the live object range,
+    /// with obj_start and obj_end spanning the full allocated range (no spare capacity).
+    ///
+    /// DANGEROUS: Unlike create_uninitialized, this version does NOT enforce trivial copyability
+    /// or trivial destructibility via static assertions. The caller MUST ensure that:
+    /// 1. The type has a trivial destructor (or the memory is properly initialized before destruction)
+    /// 2. The memory is properly initialized before any reads or operations that assume constructed objects
+    ///
+    /// Only use this when you need uninitialized allocation for types that don't satisfy the
+    /// create_uninitialized requirements but you can guarantee safety through other means.
+    ///
+    /// Alignment is set to alignof(T).
+    /// Empty allocations (size == 0) result in nullptr with no real allocation call.
+    [[nodiscard]] static allocation create_uninitialized_unsafe(isize size, memory_resource const* resource)
+    {
+        auto result = allocation::create_empty(size, alignof(T), resource);
+        result.obj_end = result.obj_start + size;
+        return result;
+    }
+
+    /// Creates a deep copy of a span of objects using the specified memory resource.
+    ///
+    /// Copies all objects from the provided span.
+    /// The result is a "tight" allocation: allocated bytes exactly match live object count,
+    /// with obj_start and obj_end spanning the full allocated range (no spare capacity).
+    ///
+    /// Objects are copy-constructed via copy_create_objects_to.
+    /// Alignment is set to alignof(T).
+    ///
+    /// Empty spans (size == 0) result in nullptr with no real allocation call.
+    [[nodiscard]] static allocation create_copy_of(span<T const> source, memory_resource const* resource)
+    {
+        auto result = allocation::create_empty(source.size(), alignof(T), resource);
+        impl::copy_create_objects_to(result.obj_end, source.data(), source.data() + source.size());
+        return result;
+    }
+
+    /// Same as create_copy_of(source, resource) but uses the default memory resource
+    [[nodiscard]] static allocation create_copy_of(span<T const> source)
+    {
+        return allocation::create_copy_of(source, nullptr);
+    }
+
+    /// Creates a deep copy of another allocation using the specified memory resource.
+    ///
+    /// Copies only the live object range [rhs.obj_start, rhs.obj_end), not the full capacity.
+    /// This is a convenience overload that forwards to create_copy_of(span, resource).
+    ///
+    /// The resource parameter may differ from rhs.custom_resource, enabling cross-resource copies.
+    [[nodiscard]] static allocation create_copy_of(allocation const& rhs, memory_resource const* resource)
+    {
+        return allocation::create_copy_of(rhs.obj_span(), resource);
     }
 
     /// Same as create_copy_of(rhs, resource) but uses the same memory resource as rhs
     [[nodiscard]] static allocation create_copy_of(allocation const& rhs)
     {
-        return create_copy_of(rhs, rhs.custom_resource);
+        return allocation::create_copy_of(rhs.obj_span(), rhs.custom_resource);
     }
 
     // lifecycle
@@ -399,7 +590,7 @@ public:
         alloc_start(cc::exchange(rhs.alloc_start, nullptr)),
         alloc_end(cc::exchange(rhs.alloc_end, nullptr)),
         alignment(cc::exchange(rhs.alignment, 0)),
-        custom_resource(cc::exchange(rhs.custom_resource, nullptr))
+        custom_resource(rhs.custom_resource) // rhs resource stays
     {
     }
 
@@ -441,7 +632,7 @@ public:
             alloc_start = cc::exchange(rhs_tmp.alloc_start, nullptr);
             alloc_end = cc::exchange(rhs_tmp.alloc_end, nullptr);
             alignment = cc::exchange(rhs_tmp.alignment, 0);
-            custom_resource = cc::exchange(rhs_tmp.custom_resource, nullptr);
+            custom_resource = rhs_tmp.custom_resource; // rhs resource stays
         }
 
         return *this;

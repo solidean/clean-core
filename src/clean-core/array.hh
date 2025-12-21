@@ -4,6 +4,11 @@
 #include <clean-core/assert.hh>
 #include <clean-core/fwd.hh>
 
+// TODO:
+// - sequence entry points
+// - retyping APIs
+// - resize APIs? -> would be totally fine I think
+
 
 /// Dynamically allocated array of T elements with value semantics.
 /// Similar to std::vector but without growth operations (push, pop, resize).
@@ -52,8 +57,36 @@ public:
     /// Returns true if size() == 0.
     [[nodiscard]] constexpr bool empty() const { return !_data.has_objects(); }
 
-    // ctors
+    // ctors / allocation
 public:
+    // array directly from a previous allocation
+    // simply treats the live objects as the array
+    [[nodiscard]] static array create_from_allocation(cc::allocation<T> data) { return array(cc::move(data)); }
+
+    // initializes a new array with "size" many defaulted elements
+    [[nodiscard]] static array create_defaulted(size_t size, cc::memory_resource const* resource = nullptr)
+    {
+        return array(cc::allocation<T>::create_defaulted(size, resource));
+    }
+
+    // initializes a new array with "size" many elements, all copy-constructed from "value"
+    [[nodiscard]] static array create_filled(size_t size, T const& value, cc::memory_resource const* resource = nullptr)
+    {
+        return array(cc::allocation<T>::create_filled(size, value, resource));
+    }
+
+    // initializes a new array with "size" many uninitialized elements (only safe for trivial types)
+    [[nodiscard]] static array create_uninitialized(size_t size, cc::memory_resource const* resource = nullptr)
+    {
+        return array(cc::allocation<T>::create_uninitialized(size, resource));
+    }
+
+    // creates a deep copy of the provided span
+    [[nodiscard]] static array create_copy_of(cc::span<T const> source, cc::memory_resource const* resource = nullptr)
+    {
+        return array(cc::allocation<T>::create_copy_of(source, resource));
+    }
+
     array() = default;
     ~array() = default;
 
@@ -66,11 +99,20 @@ public:
     array& operator=(array const& rhs)
     {
         if (this != &rhs)
-            _data = cc::allocation<T>::create_copy_of(rhs._data);
+            _data = cc::allocation<T>::create_copy_of(rhs._data, _data.custom_resource); // keep lhs resource
         return *this;
     }
 
+    /// Extracts and returns the underlying allocation, leaving the array empty.
+    /// The returned `cc::allocation<T>` owns the backing storage and live objects.
+    /// The array retains its memory resource for future use.
+    /// Enables zero-copy interop with other contiguous containers.
+    /// Complexity: O(1).
+    cc::allocation<T> extract_allocation() { return cc::move(_data); }
+
 private:
+    explicit array(cc::allocation<T> data) : _data(cc::move(data)) {}
+
     cc::allocation<T> _data;
 };
 

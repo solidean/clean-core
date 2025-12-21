@@ -71,7 +71,7 @@ public:
             { c.data() } -> std::convertible_to<T*>;
             { c.size() } -> std::convertible_to<isize>;
         }
-    constexpr explicit span(Container&& c) : _data(c.data()), _size(static_cast<isize>(c.size()))
+    constexpr span(Container&& c) : _data(c.data()), _size(static_cast<isize>(c.size()))
     {
     }
 
