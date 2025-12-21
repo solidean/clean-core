@@ -868,24 +868,6 @@ TEST("utility - dont_deduce disables deduction")
     CHECK(true); // compile-time test only
 }
 
-TEST("utility - always_false_t and always_false_v are false")
-{
-    SECTION("always_false_t")
-    {
-        static_assert(!cc::always_false_t<int>);
-        static_assert(!cc::always_false_t<float, double>);
-        static_assert(!cc::always_false_t<>);
-        CHECK(true); // compile-time test only
-    }
-
-    SECTION("always_false_v")
-    {
-        static_assert(!cc::always_false_v<42>);
-        static_assert(!cc::always_false_v<1, 2, 3>);
-        CHECK(true); // compile-time test only
-    }
-}
-
 TEST("utility - function_ptr converts signatures to pointers")
 {
     SECTION("simple function")

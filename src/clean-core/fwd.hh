@@ -82,4 +82,19 @@ struct nullopt_t;
 template <class T>
 struct optional;
 
+template <class T>
+struct array;
+template <class T, isize N>
+struct fixed_array;
+
+// template <class T>
+// struct vector;
+// template <class T, isize N>
+// struct fixed_vector;
+
+// template <class T>
+// struct devector;
+// template <class T, isize N>
+// struct fixed_devector;
+
 } // namespace cc

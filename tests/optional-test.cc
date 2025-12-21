@@ -242,7 +242,7 @@ TEST("optional - non-trivial types")
         opt2 = cc::move(opt1);
         CHECK(opt2.has_value());
         CHECK(opt2.value().value == 42);
-        CHECK(!opt1.has_value());
+        CHECK(opt1.has_value()); // still has its value, just in moved-from form
     }
 
     SECTION("value types - string")
@@ -425,7 +425,7 @@ TEST("optional - counting special member functions")
             opt2 = cc::move(opt1);
             CHECK(opt2.has_value());
             CHECK(opt2.value().value == 42);
-            CHECK(!opt1.has_value());
+            CHECK(opt1.has_value()); // still has its value, just in moved-from form
         }
         // Should move construct into empty optional, then destruct moved-from value
         CHECK(counting_type::move_ctor_count == 1);
@@ -443,7 +443,7 @@ TEST("optional - counting special member functions")
             opt2 = cc::move(opt1);
             CHECK(opt2.has_value());
             CHECK(opt2.value().value == 42);
-            CHECK(!opt1.has_value());
+            CHECK(opt1.has_value()); // still has its value, just in moved-from form
         }
         // Should use move assignment operator (not reconstruct)
         CHECK(counting_type::move_assign_count == 1);
@@ -510,8 +510,8 @@ TEST("optional - counting special member functions")
             auto opt = cc::optional<counting_type>{counting_type{42}};
             counting_type::reset_counters(); // Reset to isolate self-assignment
             opt = cc::move(opt);
-            // After self-move, optional should become empty
-            CHECK(!opt.has_value());
+            // After self-move, optional is not "empty"
+            CHECK(opt.has_value()); // still has its value, just in moved-from form
         }
         // Self-move should destruct the value and leave optional empty
         CHECK(counting_type::dtor_count == 1);
@@ -575,7 +575,7 @@ TEST("optional - move-only types")
         opt2 = cc::move(opt1);
         CHECK(opt2.has_value());
         CHECK(opt2.value().value == 42);
-        CHECK(!opt1.has_value());
+        CHECK(opt1.has_value()); // still has its value, just in moved-from form
     }
 
     SECTION("value move assignment")
@@ -757,5 +757,85 @@ TEST("optional - assignment scenarios")
         opt2 = opt1;
         CHECK(opt2.has_value());
         CHECK(opt2.value() == 42);
+    }
+}
+
+TEST("optional - subobject-safe move assignment")
+{
+    // Test that move assignment is subobject-safe, meaning it remains well-defined
+    // even when the right-hand side aliases a subobject transitively owned by the
+    // left-hand side. In other words, x = std::move(y) must not assume that y is
+    // independent of x; y may live inside x.
+    //
+    // This test uses a recursive structure where a type contains a unique_ptr to
+    // an optional of itself, creating a situation where we can move-assign from
+    // a nested subobject.
+
+    struct self_ref_foo;
+    struct self_ref_foo
+    {
+        int value = 0;
+        std::unique_ptr<cc::optional<self_ref_foo>> inner;
+
+        self_ref_foo() = default;
+        explicit self_ref_foo(int v) : value(v) {}
+        self_ref_foo(int v, std::unique_ptr<cc::optional<self_ref_foo>> i) : value(v), inner(cc::move(i)) {}
+
+        self_ref_foo(self_ref_foo const&) = delete;
+        self_ref_foo(self_ref_foo&& rhs) noexcept : value(rhs.value), inner(cc::move(rhs.inner)) { rhs.value = -1; }
+        self_ref_foo& operator=(self_ref_foo const&) = delete;
+        self_ref_foo& operator=(self_ref_foo&& rhs) noexcept
+        {
+            value = rhs.value;
+            inner = cc::move(rhs.inner);
+            rhs.value = -1;
+            return *this;
+        }
+    };
+
+    SECTION("move assignment from owned subobject")
+    {
+        // Create an optional containing a self_ref_foo that itself contains
+        // an optional<self_ref_foo> as a nested subobject
+        auto my_opt = cc::optional<self_ref_foo>{
+            self_ref_foo{42, std::make_unique<cc::optional<self_ref_foo>>(self_ref_foo{99})}};
+
+        CHECK(my_opt.has_value());
+        CHECK(my_opt.value().value == 42);
+        CHECK(my_opt.value().inner != nullptr);
+        CHECK(my_opt.value().inner->has_value());
+        CHECK(my_opt.value().inner->value().value == 99);
+
+        // This is the critical test: move-assign from a subobject that is transitively owned
+        // by the destination. The move assignment must not eagerly destroy or reset the
+        // left-hand side before completing the move, as that would destroy the source.
+        my_opt = cc::move(*my_opt.value().inner);
+
+        // After the move, my_opt should contain the inner value (99)
+        CHECK(my_opt.has_value());
+        CHECK(my_opt.value().value == 99);
+    }
+
+    SECTION("move assignment from deeply nested subobject")
+    {
+        // Create a three-level nested structure
+        auto inner_inner = std::make_unique<cc::optional<self_ref_foo>>(self_ref_foo{123});
+        auto inner = std::make_unique<cc::optional<self_ref_foo>>(self_ref_foo{456, cc::move(inner_inner)});
+        auto my_opt = cc::optional<self_ref_foo>{self_ref_foo{789, cc::move(inner)}};
+
+        CHECK(my_opt.has_value());
+        CHECK(my_opt.value().value == 789);
+        CHECK(my_opt.value().inner != nullptr);
+        CHECK(my_opt.value().inner->has_value());
+        CHECK(my_opt.value().inner->value().value == 456);
+        CHECK(my_opt.value().inner->value().inner != nullptr);
+        CHECK(my_opt.value().inner->value().inner->has_value());
+        CHECK(my_opt.value().inner->value().inner->value().value == 123);
+
+        // Move from the deeply nested inner-inner optional
+        my_opt = cc::move(*my_opt.value().inner->value().inner);
+
+        CHECK(my_opt.has_value());
+        CHECK(my_opt.value().value == 123);
     }
 }

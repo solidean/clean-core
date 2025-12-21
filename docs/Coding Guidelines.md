@@ -44,6 +44,16 @@ These guidelines prioritize correctness, performance, maintainability, and reada
 - One declaration per line. Never `int a, b;`
 - Line length should be reasonable for diffs (~100 chars recommended).
 - Prefer short, tight sections optimized for skimming.
+- **Comparison direction consistency:** When chaining comparisons with `&&`, maintain consistent direction.
+  ```cpp
+  // Good: consistent direction
+  if (a < b && b < c) { ... }
+  if (min <= value && value < max) { ... }
+
+  // Avoid: inconsistent direction
+  if (b > a && b < c) { ... }
+  if (value >= min && max > value) { ... }
+  ```
 
 ### Type Declarations & Const
 
@@ -123,8 +133,8 @@ Avoid non-trivial constructors. Prefer static factory methods instead:
 ```cpp
 // Good: default constructible with factory methods
 struct texture {
-    [[nodiscard]] static cc::result<texture> from_file(cc::string_view path);
-    [[nodiscard]] static texture from_dimensions(int width, int height);
+    [[nodiscard]] static cc::result<texture> create_from_file(cc::string_view path);
+    [[nodiscard]] static texture create_with_dimensions(int width, int height);
 
     texture() = default;  // always provide default ctor
 
@@ -139,6 +149,11 @@ struct texture {
     texture(cc::string_view path);  // what if file doesn't exist?
 };
 ```
+
+**Factory method naming convention:**
+- **Must use `create_` prefix** (e.g., `create_from_file`, `create_with_dimensions`)
+- **Must be marked `[[nodiscard]]`**
+- **Rationale:** "from" reads like conversion only, "make" implies less work. "create" is consistent and clear. Since C++ allows calling static functions through instances, the prefix prevents confusion with mutating member functions. The consistent prefix also aids discoverability via autocomplete.
 
 **Benefits of factory methods:**
 - Can return `cc::result` or `optional` to properly handle failures
@@ -363,6 +378,74 @@ TEST("feature group")
 
 ---
 
+## Common Design Pitfalls
+
+This section documents subtle correctness issues that frequently arise in low-level library design.
+
+### Subobject-Safe Move Assignment
+
+A move-assignment operation is **subobject-safe** if it remains well-defined even when the right-hand side aliases a subobject transitively owned by the left-hand side.
+
+In other words, `x = cc::move(y)` must not assume that `y` is independent of `x`; `y` may live inside `x`.
+
+**Common failure mode:**
+
+Many move-assignment implementations eagerly destroy or reset the left-hand side (or the right-hand side) before all reads from the source are complete.
+
+If the source aliases a subobject of the destination, this can destroy the source object mid-assignment, leading to use-after-destruction and undefined behavior.
+
+Simple `this != &other` checks do **not** protect against this.
+
+**Example of the problem:**
+
+```cpp
+struct container {
+    int* _data = nullptr;
+
+    // BROKEN: not subobject-safe
+    container& operator=(container&& rhs) {
+        if (this != &rhs) {
+            delete[] _data;  // destroys _data
+            _data = rhs._data;  // but rhs._data might have been inside _data!
+            rhs._data = nullptr;
+        }
+        return *this;
+    }
+};
+
+// This can break:
+container outer;
+outer._data = new int[10];
+container* inner = reinterpret_cast<container*>(outer._data);
+*inner = cc::move(outer);  // inner is destroyed before we read from outer
+```
+
+**Design guideline:**
+
+Components in this library should aim to provide subobject-safe move assignment, or clearly document when they do not.
+
+This property is essential for composability: if a type `T` is subobject-safe move-assignable, then wrappers and aggregates (e.g., `optional<T>`, containers, resource owners) should preserve that guarantee rather than weakening it through additional side effects on the source object.
+
+**Recommended pattern:**
+
+```cpp
+// Safe: read all data from rhs before modifying this
+container& operator=(container&& rhs) {
+    if (this != &rhs) {
+        auto* old_data = _data;
+        auto* new_data = rhs._data;
+
+        _data = new_data;
+        rhs._data = nullptr;
+
+        delete[] old_data;  // destroy after all reads complete
+    }
+    return *this;
+}
+```
+
+---
+
 ## Stability & Evolution
 
 **API Stability:** High priority. This is a foundational library. We reserve the right to make breaking changes where they significantly improve the library.
@@ -395,3 +478,4 @@ TEST("feature group")
 - [ ] Tests written in nexus
 - [ ] Use `impl` namespace (not `detail`) for implementation details
 - [ ] Consider C++23 deducing `this` where appropriate
+- [ ] Move assignment is subobject-safe (or documented otherwise)

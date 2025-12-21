@@ -3,6 +3,7 @@
 #include <clean-core/assert.hh>
 #include <clean-core/fwd.hh>
 
+#include <cstring>
 #include <type_traits>
 
 // =========================================================================================================
@@ -48,13 +49,12 @@
 //
 // Template metaprogramming:
 //   dont_deduce<T>                   - disable template argument deduction for T
-//   always_false_t<T...>             - always false for static_assert with type parameters
-//   always_false_v<V...>             - always false for static_assert with value parameters
 //   function_ptr<Signature>          - convert function signature to function pointer type
 //
 // Memory management:
 //   new(cc::placement_new, ptr) T    - placement new with explicit tag type
 //   storage_for<T>                   - uninitialized storage for manual lifetime management
+//   memcpy(dest, src, count)         - copy bytes from src to dest
 //
 // Scope utilities:
 //   CC_DEFER { code }                - execute code at scope-exit (RAII cleanup)
@@ -483,31 +483,12 @@ struct dont_deduce_t
 template <class T>
 using dont_deduce = typename impl::dont_deduce_t<T>::type;
 
-/// Helper for indicating errors in static_asserts with dependent types
-/// Always evaluates to false, but only after template instantiation
-/// Usage:
-///   template<class T>
-///   void foo() {
-///       static_assert(cc::always_false_t<T>, "T is not supported");
-///   }
-template <class... E>
-constexpr bool always_false_t = false;
-
-/// Same as always_false_t but for non-type template parameters
-/// Usage:
-///   template<int Dimension>
-///   void foo() {
-///       static_assert(cc::always_false_v<Dimension>, "unsupported dimension");
-///   }
-template <auto... E>
-constexpr bool always_false_v = false;
-
 namespace impl
 {
 template <class T>
 struct function_ptr_t
 {
-    static_assert(always_false_t<T>, "function_ptr should only be used with function signatures");
+    static_assert(false, "function_ptr should only be used with function signatures");
 };
 template <class R, class... Args>
 struct function_ptr_t<R(Args...)>
@@ -581,6 +562,19 @@ union storage_for // NOLINT(cppcoreguidelines-special-member-functions)
     cc::byte dummy = {};
     T value;
 };
+
+/// Copy bytes from source to destination
+/// Performs the following operations in order:
+///   - Implicitly creates objects at dest.
+///   - Copies count characters (as if of type unsigned char) from the object pointed to by src into the object pointed to by dest.
+/// If any of the following conditions is satisfied, the behavior is undefined:
+///   - dest or src is a null pointer or invalid pointer.
+///   - Copying takes place between objects that overlap.
+/// Usage:
+///   cc::memcpy(dest_ptr, src_ptr, num_bytes);
+///   char buffer[100];
+///   cc::memcpy(buffer, "hello", 6);
+using std::memcpy;
 
 // =========================================================================================================
 // Scope utilities

@@ -11,34 +11,6 @@ namespace
 /// Static function implementations for the system memory resource.
 /// These ignore the userdata parameter as the system allocator is stateless.
 
-cc::byte* system_allocate_bytes(cc::isize bytes, cc::isize alignment, void* userdata)
-{
-    CC_UNUSED(userdata);
-
-    CC_ASSERT(alignment > 0 && cc::is_power_of_two(alignment), "alignment must be a power of 2");
-
-    // Contract: bytes == 0 always returns nullptr
-    if (bytes == 0)
-        return nullptr;
-
-    // Delegate to try_allocate and assert success
-    cc::byte* p = nullptr;
-
-#ifdef CC_OS_WINDOWS
-    p = static_cast<cc::byte*>(_aligned_malloc(bytes, alignment));
-#else
-    // Use posix_memalign instead of std::aligned_alloc to avoid the bytes % alignment == 0 requirement.
-    // posix_memalign requires alignment >= sizeof(void*), so we clamp to that minimum.
-    void* raw_ptr = nullptr;
-    cc::isize effective_alignment = alignment < sizeof(void*) ? sizeof(void*) : alignment;
-    int result = posix_memalign(&raw_ptr, effective_alignment, bytes);
-    p = result == 0 ? static_cast<cc::byte*>(raw_ptr) : nullptr;
-#endif
-
-    CC_ASSERTF(p != nullptr, "allocation failed: requested {} bytes with alignment {}", bytes, alignment);
-    return p;
-}
-
 cc::byte* system_try_allocate_bytes(cc::isize bytes, cc::isize alignment, void* userdata)
 {
     CC_UNUSED(userdata);
@@ -62,6 +34,13 @@ cc::byte* system_try_allocate_bytes(cc::isize bytes, cc::isize alignment, void* 
     int result = posix_memalign(&raw_ptr, effective_alignment, bytes);
     return result == 0 ? static_cast<cc::byte*>(raw_ptr) : nullptr;
 #endif
+}
+
+cc::byte* system_allocate_bytes(cc::isize bytes, cc::isize alignment, void* userdata)
+{
+    auto const p = system_try_allocate_bytes(bytes, alignment, userdata);
+    CC_ASSERTF(p != nullptr, "allocation failed: requested {} bytes with alignment {}", bytes, alignment);
+    return p;
 }
 
 void system_deallocate_bytes(cc::byte* p, cc::isize bytes, cc::isize alignment, void* userdata)
