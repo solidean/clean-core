@@ -651,3 +651,114 @@ public:
         }
     }
 };
+
+
+template <class T, class ContainerT>
+struct cc::allocating_container
+{
+    using container_t = ContainerT;
+
+    // element access
+public:
+    /// Returns a reference to the element at index i.
+    /// Precondition: 0 <= i < size().
+    [[nodiscard]] constexpr T& operator[](isize i) { return _data.obj_at(i); }
+    [[nodiscard]] constexpr T const& operator[](isize i) const { return _data.obj_at(i); }
+
+    /// Returns a reference to the first element.
+    /// Precondition: !empty().
+    [[nodiscard]] constexpr T& front() { return _data.obj_front(); }
+    [[nodiscard]] constexpr T const& front() const { return _data.obj_front(); }
+
+    /// Returns a reference to the last element.
+    /// Precondition: !empty().
+    [[nodiscard]] constexpr T& back() { return _data.obj_back(); }
+    [[nodiscard]] constexpr T const& back() const { return _data.obj_back(); }
+
+    /// Returns a pointer to the underlying contiguous storage.
+    /// May be nullptr if the array is default-constructed or empty.
+    [[nodiscard]] constexpr T* data() { return _data.obj_start; }
+    [[nodiscard]] constexpr T const* data() const { return _data.obj_start; }
+
+    // iterators
+public:
+    /// Returns a pointer to the first element.
+    /// Enables range-based for loops.
+    [[nodiscard]] constexpr T* begin() { return _data.obj_start; }
+    /// Returns a pointer to one past the last element.
+    [[nodiscard]] constexpr T* end() { return _data.obj_end; }
+    [[nodiscard]] constexpr T const* begin() const { return _data.obj_start; }
+    [[nodiscard]] constexpr T const* end() const { return _data.obj_end; }
+
+    // queries
+public:
+    /// Returns the number of elements in the array.
+    [[nodiscard]] constexpr isize size() const { return _data.obj_size(); }
+    /// Returns true if size() == 0.
+    [[nodiscard]] constexpr bool empty() const { return !_data.has_objects(); }
+
+    // ctors / allocation
+public:
+    // array directly from a previous allocation
+    // simply treats the live objects as the array
+    [[nodiscard]] static container_t create_from_allocation(cc::allocation<T> data)
+    {
+        container_t c;
+        c._data = cc::move(data);
+        return c;
+    }
+
+    // initializes a new container_t with "size" many defaulted elements
+    [[nodiscard]] static container_t create_defaulted(size_t size, cc::memory_resource const* resource = nullptr)
+    {
+        return container_t::create_from_allocation(cc::allocation<T>::create_defaulted(size, resource));
+    }
+
+    // initializes a new container_t with "size" many elements, all copy-constructed from "value"
+    [[nodiscard]] static container_t create_filled(size_t size,
+                                                   T const& value,
+                                                   cc::memory_resource const* resource = nullptr)
+    {
+        return container_t::create_from_allocation(cc::allocation<T>::create_filled(size, value, resource));
+    }
+
+    // initializes a new container_t with "size" many uninitialized elements (only safe for trivial types)
+    [[nodiscard]] static container_t create_uninitialized(size_t size, cc::memory_resource const* resource = nullptr)
+    {
+        return container_t::create_from_allocation(cc::allocation<T>::create_uninitialized(size, resource));
+    }
+
+    // creates a deep copy of the provided span
+    [[nodiscard]] static container_t create_copy_of(cc::span<T const> source,
+                                                    cc::memory_resource const* resource = nullptr)
+    {
+        return container_t::create_from_allocation(cc::allocation<T>::create_copy_of(source, resource));
+    }
+
+    allocating_container() = default;
+    ~allocating_container() = default;
+
+    // move semantics are already fine via cc::allocation
+    allocating_container(allocating_container&&) = default;
+    allocating_container& operator=(allocating_container&&) = default;
+
+    // deep copy semantics
+    // containers that use this mix-in can simply delete their copy ctor if they do not want it
+    allocating_container(allocating_container const& rhs) : _data(cc::allocation<T>::create_copy_of(rhs._data)) {}
+    allocating_container& operator=(allocating_container const& rhs)
+    {
+        if (this != &rhs)
+            _data = cc::allocation<T>::create_copy_of(rhs._data, _data.custom_resource); // keep lhs resource
+        return *this;
+    }
+
+    /// Extracts and returns the underlying allocation, leaving the allocating_container empty.
+    /// The returned `cc::allocation<T>` owns the backing storage and live objects.
+    /// The allocating_container retains its memory resource for future use.
+    /// Enables zero-copy interop with other contiguous containers.
+    /// Complexity: O(1).
+    cc::allocation<T> extract_allocation() { return cc::move(_data); }
+
+private:
+    cc::allocation<T> _data;
+};

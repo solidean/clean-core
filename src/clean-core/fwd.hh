@@ -82,6 +82,9 @@ struct nullopt_t;
 template <class T>
 struct optional;
 
+template <class T, class ContainerT>
+struct allocating_container;
+
 template <class T>
 struct array;
 template <class T, isize N>
