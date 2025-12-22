@@ -11,36 +11,47 @@ namespace
 /// Static function implementations for the system memory resource.
 /// These ignore the userdata parameter as the system allocator is stateless.
 
-cc::byte* system_try_allocate_bytes(cc::isize bytes, cc::isize alignment, void* userdata)
+cc::isize system_try_allocate_bytes(cc::byte** out_ptr, cc::isize min_bytes, cc::isize max_bytes, cc::isize alignment, void* userdata)
 {
     CC_UNUSED(userdata);
 
     CC_ASSERT(alignment > 0 && cc::is_power_of_two(alignment), "alignment must be a power of 2");
+    CC_ASSERT(min_bytes >= 0 && min_bytes <= max_bytes, "must have 0 <= min_bytes <= max_bytes");
 
-    // Contract: bytes == 0 always returns nullptr
-    if (bytes == 0)
-        return nullptr;
+    // Contract: min_bytes == 0 always sets *out_ptr to nullptr and returns 0
+    if (min_bytes == 0)
+    {
+        *out_ptr = nullptr;
+        return 0;
+    }
+
+    // For simplicity, we allocate exactly min_bytes (not using max_bytes for size class rounding)
+    // Custom allocators with size classes would use max_bytes to potentially round up
+    cc::isize bytes_to_allocate = min_bytes;
 
     // Use platform-specific aligned allocation:
     // - Windows: _aligned_malloc does not strictly require bytes % alignment == 0
     // - POSIX: posix_memalign does not require bytes % alignment == 0 (unlike std::aligned_alloc)
 #ifdef CC_OS_WINDOWS
-    return static_cast<cc::byte*>(_aligned_malloc(bytes, alignment));
+    *out_ptr = static_cast<cc::byte*>(_aligned_malloc(bytes_to_allocate, alignment));
 #else
     // Use posix_memalign instead of std::aligned_alloc to avoid the bytes % alignment == 0 requirement.
     // posix_memalign requires alignment >= sizeof(void*), so we clamp to that minimum.
     void* raw_ptr = nullptr;
     cc::isize effective_alignment = alignment < sizeof(void*) ? sizeof(void*) : alignment;
-    int result = posix_memalign(&raw_ptr, effective_alignment, bytes);
-    return result == 0 ? static_cast<cc::byte*>(raw_ptr) : nullptr;
+    int result = posix_memalign(&raw_ptr, effective_alignment, bytes_to_allocate);
+    *out_ptr = result == 0 ? static_cast<cc::byte*>(raw_ptr) : nullptr;
 #endif
+
+    // Return actual allocated size, or -1 on failure
+    return *out_ptr != nullptr ? bytes_to_allocate : -1;
 }
 
-cc::byte* system_allocate_bytes(cc::isize bytes, cc::isize alignment, void* userdata)
+cc::isize system_allocate_bytes(cc::byte** out_ptr, cc::isize min_bytes, cc::isize max_bytes, cc::isize alignment, void* userdata)
 {
-    auto const p = system_try_allocate_bytes(bytes, alignment, userdata);
-    CC_ASSERTF(bytes == 0 || p != nullptr, "allocation failed: requested {} bytes with alignment {}", bytes, alignment);
-    return p;
+    auto const result = system_try_allocate_bytes(out_ptr, min_bytes, max_bytes, alignment, userdata);
+    CC_ASSERTF(min_bytes == 0 || result >= 0, "allocation failed: requested [{}, {}] bytes with alignment {}", min_bytes, max_bytes, alignment);
+    return result;
 }
 
 void system_deallocate_bytes(cc::byte* p, cc::isize bytes, cc::isize alignment, void* userdata)

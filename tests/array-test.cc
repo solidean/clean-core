@@ -121,14 +121,19 @@ struct CountingResource : cc::memory_resource
 
     CountingResource()
     {
-        allocate_bytes = [](cc::isize bytes, cc::isize alignment, void* userdata) -> cc::byte*
+        allocate_bytes = [](cc::byte** out_ptr, cc::isize min_bytes, cc::isize max_bytes, cc::isize alignment, void* userdata) -> cc::isize
         {
             auto* self = static_cast<CountingResource*>(userdata);
             ++self->allocations;
-            self->total_allocated_bytes += bytes;
-            if (bytes == 0)
-                return nullptr;
-            return static_cast<cc::byte*>(::operator new(bytes, std::align_val_t(alignment)));
+            if (min_bytes == 0)
+            {
+                *out_ptr = nullptr;
+                return 0;
+            }
+            // Allocate exactly min_bytes (not using max_bytes for size class rounding)
+            *out_ptr = static_cast<cc::byte*>(::operator new(min_bytes, std::align_val_t(alignment)));
+            self->total_allocated_bytes += min_bytes;
+            return min_bytes;
         };
 
         deallocate_bytes = [](cc::byte* p, cc::isize bytes, cc::isize alignment, void* userdata)

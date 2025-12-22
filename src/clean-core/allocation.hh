@@ -3,6 +3,7 @@
 #include <clean-core/fwd.hh>
 #include <clean-core/utility.hh>
 
+#include <new>
 
 namespace cc
 {
@@ -125,6 +126,45 @@ constexpr void copy_create_objects_to(T*& dest_end, T const* src_start, T const*
     }
 }
 
+/// Move-constructs objects from [src_start, src_end) using placement new.
+/// dest_end is incremented for each successfully constructed object.
+/// IMPORTANT: Assumes the objects at [*dest_end, *dest_end + (src_end - src_start)) are NOT yet constructed
+/// (uninitialized memory). This function initializes the lifetime of objects starting at *dest_end. We keep the
+/// T*& dest_end design for consistency with copy_create_objects_to, but do not promise exception safety if move
+/// constructors throw. Empty ranges (src_start == src_end) and nullptr are valid and result in a no-op. Trivially
+/// copyable types are optimized to use memcpy at compile time.
+///
+/// Usage pattern:
+///   auto obj_start = (T*)uninitialized_memory;
+///   auto obj_end = obj_start;
+///   move_create_objects_to(obj_end, src, src + count);
+///   // [obj_start, obj_end) is now the constructed live range
+template <class T>
+constexpr void move_create_objects_to(T*& dest_end, T* src_start, T* src_end)
+{
+    static_assert(sizeof(T) > 0, "T must be a complete type (did you forget to include a header?)");
+    static_assert(std::is_move_constructible_v<T>, "T must be move constructible");
+
+    if constexpr (std::is_trivially_copyable_v<T>)
+    {
+        auto const size = src_end - src_start;
+        if (size > 0)
+        {
+            cc::memcpy(dest_end, src_start, size * sizeof(T));
+            dest_end += size;
+        }
+    }
+    else
+    {
+        while (src_start != src_end)
+        {
+            new (cc::placement_new, dest_end) T(cc::move(*src_start));
+            ++dest_end;
+            ++src_start;
+        }
+    }
+}
+
 /// Copy-assigns objects from [src_start, src_end) using copy assignment operator.
 /// dest_end is incremented for each successfully assigned object.
 /// IMPORTANT: Assumes the objects at [*dest_end, *dest_end + (src_end - src_start)) are already constructed (alive).
@@ -194,18 +234,26 @@ constexpr void fill_assign_objects_to(T*& dest_end, isize count, T const& value)
 /// This is a POD struct using function pointers to avoid virtual dispatch and non-trivial constructors.
 struct cc::memory_resource
 {
-    /// Allocate `bytes` with at least `alignment` alignment, never returning null for non-zero requests.
-    /// bytes == 0 always returns nullptr.
-    /// bytes > 0 always returns non-null; failure is fatal (assert/terminate) or throws.
-    cc::function_ptr<cc::byte*(isize bytes, isize alignment, void* userdata)> allocate_bytes = nullptr;
+    /// Allocate between `min_bytes` and `max_bytes` with at least `alignment` alignment.
+    /// Returns the actual allocated size, which will be in [min_bytes, max_bytes].
+    /// The allocated pointer is stored in `*out_ptr`.
+    /// min_bytes == 0 always sets *out_ptr to nullptr and returns 0.
+    /// min_bytes > 0 always sets *out_ptr to non-null; failure is fatal (assert/terminate) or throws.
+    /// Allocators that round to size classes can report the rounded-up size to allow more effective memory use.
+    cc::function_ptr<isize(cc::byte** out_ptr, isize min_bytes, isize max_bytes, isize alignment, void* userdata)> allocate_bytes
+        = nullptr;
 
-    /// Attempt to allocate `bytes` with at least `alignment` alignment, returning nullptr on failure.
-    /// bytes == 0 always returns nullptr.
-    /// bytes > 0 may return nullptr to signal allocation was not possible.
+    /// Attempt to allocate between `min_bytes` and `max_bytes` with at least `alignment` alignment.
+    /// Returns the actual allocated size on success, or -1 on failure.
+    /// The allocated pointer is stored in `*out_ptr` on success, or nullptr on failure.
+    /// min_bytes == 0 always sets *out_ptr to nullptr and returns 0.
+    /// min_bytes > 0 may return -1 and set *out_ptr to nullptr to signal allocation was not possible.
     /// This provides an escape hatch for callers that must handle allocation failure explicitly.
-    /// Implementations should prefer returning nullptr over fatal failure when feasible (best-effort).
-    /// Wrappers are still permitted to fatally fail rather than return nullptr.
-    cc::function_ptr<cc::byte*(isize bytes, isize alignment, void* userdata)> try_allocate_bytes = nullptr;
+    /// Implementations should prefer returning -1 over fatal failure when feasible (best-effort).
+    /// Wrappers are still permitted to fatally fail rather than return -1.
+    /// Allocators that round to size classes can report the rounded-up size to allow more effective memory use.
+    cc::function_ptr<isize(cc::byte** out_ptr, isize min_bytes, isize max_bytes, isize alignment, void* userdata)> try_allocate_bytes
+        = nullptr;
 
     /// Deallocate a block previously obtained from this resource with matching bytes and alignment.
     /// `p` must be the exact pointer returned by allocate_bytes or try_allocate_bytes.
@@ -290,7 +338,8 @@ struct cc::memory_resource
 /// - [obj_start, obj_end) is the live object range; obj_end is exclusive.
 /// - size() is (obj_end - obj_start) in elements.
 /// - [alloc_start, alloc_end) is the owned byte allocation; alloc_end is exclusive.
-/// - obj_start/obj_end always lie within [alloc_start, alloc_end) (after appropriate alignment).
+/// - alloc_start <= obj_start <= obj_end <= alloc_end (even for empty ranges or empty allocations).
+/// - obj_start and obj_end must be aligned to alignof(T) (even when the range is empty).
 /// - resource == nullptr means the global default memory resource is used.
 template <class T>
 struct cc::allocation
@@ -300,12 +349,16 @@ struct cc::allocation
     /// Points into the owned byte allocation. The live range is contiguous and begins here.
     /// The object lifetime model is: all objects in [obj_start, obj_end) are alive; outside it is
     /// dead storage. For vector-like containers, obj_start is typically also the "data()" pointer.
+    ///
+    /// INVARIANT: Must always be aligned to alignof(T), even if the range is empty.
     T* obj_start = nullptr;
 
     /// Pointer one past the last live object (exclusive end).
     ///
     /// This is the classic half-open range convention: [obj_start, obj_end).
     /// The number of live elements is (obj_end - obj_start).
+    ///
+    /// INVARIANT: Must always be aligned to alignof(T), even if the range is empty.
     T* obj_end = nullptr;
 
     /// Start of the owned byte allocation (base pointer returned by the memory resource).
@@ -353,12 +406,90 @@ public:
         return custom_resource ? *custom_resource : *default_memory_resource;
     }
 
+    /// True iff this is a valid non-defaulted allocation
+    /// Implies byte size > 0, i.e. alloc_start < alloc_end
+    /// But obj_span might still be empty
+    [[nodiscard]] bool is_valid() const { return alloc_start != nullptr; }
+
     /// Returns the span of live objects
     /// Note: proper mutability ("const correctness") is user responsibility
     [[nodiscard]] cc::span<T> obj_span() const { return cc::span<T>(obj_start, obj_end); }
 
+    /// Number of allocated bytes
+    [[nodiscard]] isize alloc_size_bytes() const { return alloc_end - alloc_start; }
+
+    /// Attempt to resize the allocation in place to a size between min_bytes and max_bytes.
+    /// Returns true if the resize succeeded, false otherwise.
+    /// On success, alloc_end is updated to reflect the new allocation size.
+    /// On failure, the allocation remains unchanged.
+    /// IMPORTANT: Cannot resize below the size needed by live objects (obj_end).
+    [[nodiscard]] bool try_resize_alloc(isize min_bytes, isize max_bytes)
+    {
+        CC_ASSERT(min_bytes >= 0 && max_bytes >= min_bytes, "try_resize_alloc: invalid size range");
+
+        // Cannot resize below the memory occupied by live objects
+        isize const obj_end_bytes = (byte const*)obj_end - alloc_start;
+        CC_ASSERT(min_bytes >= obj_end_bytes, "try_resize_alloc: cannot resize below live object range");
+
+        // If no allocation exists, cannot resize
+        if (alloc_start == nullptr)
+            return false;
+
+        auto const old_bytes = alloc_end - alloc_start;
+        auto const& res = resource();
+
+        // Try to resize in place using the allocator API
+        isize const new_bytes
+            = res.try_resize_bytes_in_place(alloc_start, old_bytes, min_bytes, max_bytes, alignment, res.userdata);
+
+        // Check if resize failed
+        if (new_bytes == -1)
+            return false;
+
+        // Success: update alloc_end to reflect the new size
+        alloc_end = alloc_start + new_bytes;
+        return true;
+    }
+
     // factories
 public:
+    /// Creates an empty allocation with reserved capacity but no live objects.
+    ///
+    /// Allocates between min_bytes and max_bytes with the specified alignment, but does not construct any objects.
+    /// The result has obj_start == obj_end == alloc_start (zero live objects, full capacity available).
+    /// This is useful for containers that want to reserve memory upfront and construct objects incrementally.
+    ///
+    /// Allocators will typically return min_bytes, but may return more (up to max_bytes) if they've
+    /// internally rounded up to a larger size class, avoiding waste.
+    /// The alignment parameter allows over-alignment beyond alignof(T).
+    /// min_bytes == 0 results in nullptr with no real allocation call.
+    [[nodiscard]] static allocation create_empty_bytes(isize min_bytes,
+                                                       isize max_bytes,
+                                                       isize alignment,
+                                                       memory_resource const* resource) // NOLINT
+    {
+        CC_ASSERT(alignment >= alignof(T), "alignment must be at least alignof(T)");
+        CC_ASSERT(0 <= min_bytes && min_bytes <= max_bytes, "must have 0 <= min_bytes <= max_bytes");
+
+        allocation result;
+        result.custom_resource = resource;
+        result.alignment = alignment;
+
+        // Resolve the actual resource to use
+        auto const& res = resource ? *resource : *default_memory_resource;
+
+        // Allocate bytes (even if zero-sized)
+        auto const actual_byte_size
+            = res.allocate_bytes(&result.alloc_start, min_bytes, max_bytes, result.alignment, res.userdata);
+        result.alloc_end = result.alloc_start + actual_byte_size;
+
+        // Initialize obj_start and obj_end to alloc_start (zero live objects, full capacity)
+        result.obj_start = (T*)result.alloc_start;
+        result.obj_end = result.obj_start;
+
+        return result;
+    }
+
     /// Creates an empty allocation with reserved capacity but no live objects.
     ///
     /// Allocates space for 'size' objects with the specified alignment, but does not construct any objects.
@@ -369,28 +500,8 @@ public:
     /// size == 0 results in nullptr with no real allocation call.
     [[nodiscard]] static allocation create_empty(isize size, isize alignment, memory_resource const* resource) // NOLINT
     {
-        CC_ASSERT(alignment >= alignof(T), "alignment must be at least alignof(T)");
-        CC_ASSERT(size >= 0, "size must be non-negative");
-
-        allocation result;
-        result.custom_resource = resource;
-        result.alignment = alignment;
-
-        // Calculate the number of bytes to allocate
-        auto const byte_size = size * sizeof(T);
-
-        // Resolve the actual resource to use
-        auto const& res = resource ? *resource : *default_memory_resource;
-
-        // Allocate bytes (even if zero-sized)
-        result.alloc_start = res.allocate_bytes(byte_size, result.alignment, res.userdata);
-        result.alloc_end = result.alloc_start + byte_size;
-
-        // Initialize obj_start and obj_end to alloc_start (zero live objects, full capacity)
-        result.obj_start = (T*)result.alloc_start;
-        result.obj_end = result.obj_start;
-
-        return result;
+        auto const min_byte_size = size * sizeof(T);
+        return create_empty_bytes(min_byte_size, min_byte_size, alignment, resource);
     }
 
     /// Creates an allocation with a specified count of default-constructed objects.
@@ -593,11 +704,65 @@ public:
     }
 };
 
-
+/// Mixin implementing the common "contiguous container over cc::allocation<T>" surface area.
+///
+/// This is a CRTP-style helper: concrete containers privately inherit it as
+/// `cc::allocating_container<T, Derived>`, then selectively re-expose members via `using`.
+/// Example (abridged):
+///
+///     template<class T>
+///     struct cc::array : private cc::allocating_container<T, array<T>> {
+///         using base = cc::allocating_container<T, array<T>>;
+///         using base::operator[];
+///         using base::data;
+///         using base::begin; using base::end;
+///         using base::size;  using base::empty;
+///         // ... array-specific policies / ctors ...
+///     };
+///
+/// The goal is to provide a shared, consistent foundation for any container whose storage and
+/// object lifetime is modeled by `cc::allocation<T>` (i.e. a live object subrange inside an owned
+/// byte allocation). This centralizes the "boring but sharp" parts: indexing, iteration, size
+/// queries, and allocation-aware factories / extraction, while keeping policy decisions in the
+/// actual container type.
+///
+/// Concrete containers can tailor:
+/// - growth behavior (no growth like `array`, back-only growth like `vector`, double-ended like `devector`)
+/// - invariants and allowed operations (push/pop/resize/rebalance)
+/// - copy semantics (keep/delete/replace the provided deep-copy defaults)
+///
+/// Capacity is expressed directionally (`capacity_front` / `capacity_back` and corresponding
+/// `has_capacity_*_for`) because a single `capacity()` is semantically ambiguous across policies:
+/// for a vector it typically means "append capacity", whereas for a devector it could mean a pooled
+/// budget or a total-possible size anchored at `obj_start`. Containers are free to define their own
+/// `capacity()` (or `capacity_total()`) in terms of the directional primitives if they want.
+///
+/// Member functions with the `_stable` suffix guarantee that they will never reallocate the buffer
+/// or move/invalidate live objects. They keep existing references, pointers, and iterators stable.
+/// These functions will typically assert that sufficient allocation capacity is already present.
 template <class T, class ContainerT>
 struct cc::allocating_container
 {
     using container_t = ContainerT;
+
+    /// Minimum alignment used for heap allocations of this container.
+    ///
+    /// We align allocations to at least one destructive-interference unit (typically a cache line).
+    /// Combined with rounding allocation sizes to multiples of this value, this ensures that
+    /// distinct container allocations never share a cache line, eliminating allocator-induced
+    /// false sharing between containers.
+    /// This removes "spooky" cross-object performance interference while keeping alignment small
+    /// enough to avoid systematic cache set aliasing that can occur with larger alignments.
+    /// Larger-than-necessary alignment inside a single container (e.g. multiple elements per line)
+    /// remains the programmer's responsibility by design.
+    static constexpr isize alloc_alignment = cc::max(alignof(T), std::hardware_destructive_interference_size);
+
+    /// Maximum extra slack allowed when growing an allocation.
+    ///
+    /// We cap allocator leeway to one OS page (4 KiB) so allocators that naturally
+    /// round to page granularity can return a full page, without letting small
+    /// allocations balloon uncontrollably.
+    static constexpr isize alloc_max_slack = 4096;
 
     // element access
 public:
@@ -665,6 +830,194 @@ public:
     [[nodiscard]] constexpr isize size_bytes() const { return (_data.obj_end - _data.obj_start) * sizeof(T); }
     /// Returns true if size() == 0.
     [[nodiscard]] constexpr bool empty() const { return _data.obj_start == _data.obj_end; }
+
+    /// How many elements can be inserted at the front (via push_front) without reallocation.
+    /// Computed as the number of whole sizeof(T) slots between alloc_start and obj_start,
+    [[nodiscard]] constexpr isize capacity_front() const
+    {
+        // Note: pointer arithmetic is well-defined for the "all nullptr" case because the C++ standard
+        //       explicitly defines nullptr - nullptr == 0 (no UB)
+        auto const front_bytes = (cc::byte const*)_data.obj_start - _data.alloc_start;
+        return front_bytes / sizeof(T); // floor
+    }
+
+    /// How many elements can be inserted at the back (via push_back) without reallocation.
+    /// Computed as the number of whole sizeof(T) slots between obj_end and alloc_end.
+    [[nodiscard]] constexpr isize capacity_back() const
+    {
+        // Note: pointer arithmetic is well-defined for the "all nullptr" case because the C++ standard
+        //       explicitly defines nullptr - nullptr == 0 (no UB)
+        auto const back_bytes = _data.alloc_end - (cc::byte const*)_data.obj_end;
+        return back_bytes / sizeof(T); // floor
+    }
+
+    /// Cheap predicate: do we have room to grow the live range by `count` elements at the front
+    /// without reallocation?
+    [[nodiscard]] constexpr bool has_capacity_front_for(isize count) const
+    {
+        // Note: pointer arithmetic is well-defined for the "all nullptr" case because the C++ standard
+        //       explicitly defines nullptr - nullptr == 0 (no UB)
+        auto const front_bytes = (cc::byte const*)_data.obj_start - _data.alloc_start;
+        return front_bytes >= count * isize(sizeof(T));
+    }
+
+    /// Cheap predicate: do we have room to grow the live range by `count` elements at the back
+    /// without reallocation?
+    [[nodiscard]] constexpr bool has_capacity_back_for(isize count) const
+    {
+        // Note: pointer arithmetic is well-defined for the "all nullptr" case because the C++ standard
+        //       explicitly defines nullptr - nullptr == 0 (no UB)
+        auto const back_bytes = _data.alloc_end - (cc::byte const*)_data.obj_end;
+        return back_bytes >= count * isize(sizeof(T));
+    }
+
+    // resizing
+public:
+    // Computes the next allocation size when growing the container.
+    //
+    // Uses exponential growth (doubling) to ensure amortized constant-time growth,
+    // then rounds up to the cache-line alignment used by this container.
+    // This preserves allocator- and container-level guarantees against
+    // cross-allocation false sharing while avoiding frequent small reallocations.
+    [[nodiscard]] static constexpr isize alloc_grow_size_for(isize curr_size, isize min_size)
+    {
+        return cc::align_up(cc::max(curr_size << 1, min_size), alloc_alignment);
+    }
+
+    // destroys the live object range, so that obj_start == obj_end afterwards
+    // calls all destructors, does not move obj_start
+    constexpr void clear()
+    {
+        impl::destroy_objects_in_reverse(_data.obj_start, _data.obj_end);
+        _data.obj_end = _data.obj_start;
+    }
+
+    /// Constructs a new element at the back using existing capacity.
+    /// Requires `has_capacity_back_for(1)` to be true; caller must ensure capacity in advance.
+    /// No allocation occurs; pointers, references, and iterators remain valid (stable operation).
+    /// Strong exception safety; O(1) complexity.
+    /// Low-level primitive for performance-critical or reference-sensitive code.
+    template <class... Args>
+    constexpr T& emplace_back_stable(Args&&... args)
+    {
+        static_assert(
+            requires { T(cc::forward<Args>(args)...); }, "emplace_back_stable: T is not constructible from "
+                                                         "the provided argument types");
+        CC_ASSERT(has_capacity_back_for(1), "not enough capacity for emplace_back_stable");
+        auto const p = new (cc::placement_new, _data.obj_end) T(cc::forward<Args>(args)...);
+        _data.obj_end++; // _after_ so exceptions in T(...) leave the state valid
+        return *p;
+    }
+
+    /// Copy-constructs a new element at the back using existing capacity.
+    /// Requires `has_capacity_back_for(1)` to be true; caller must ensure capacity in advance.
+    /// No allocation occurs; pointers, references, and iterators remain valid (stable operation).
+    /// Strong exception safety; O(1) complexity.
+    /// Low-level primitive for performance-critical or reference-sensitive code.
+    constexpr T& push_back_stable(T const& value) { return emplace_back_stable(value); }
+
+    /// Move-constructs a new element at the back using existing capacity.
+    /// Requires `has_capacity_back_for(1)` to be true; caller must ensure capacity in advance.
+    /// No allocation occurs; pointers, references, and iterators remain valid (stable operation).
+    /// Strong exception safety; O(1) complexity.
+    /// Low-level primitive for performance-critical or reference-sensitive code.
+    constexpr T& push_back_stable(T&& value) { return emplace_back_stable(cc::move(value)); }
+
+    /// Constructs a new element at the front using existing capacity.
+    /// Requires `has_capacity_front_for(1)` to be true; caller must ensure capacity in advance.
+    /// No allocation occurs; pointers, references, and iterators remain valid (stable operation).
+    /// Strong exception safety; O(1) complexity.
+    /// Low-level primitive for performance-critical or reference-sensitive code.
+    template <class... Args>
+    constexpr T& emplace_front_stable(Args&&... args)
+    {
+        static_assert(
+            requires { T(cc::forward<Args>(args)...); }, "emplace_front_stable: T is not constructible from "
+                                                         "the provided argument types");
+        CC_ASSERT(has_capacity_front_for(1), "not enough capacity for emplace_front_stable");
+        auto const p = new (cc::placement_new, _data.obj_start - 1) T(cc::forward<Args>(args)...);
+        _data.obj_start--; // _after_ so exceptions in T(...) leave the state valid
+        return *p;
+    }
+
+    /// Copy-constructs a new element at the front using existing capacity.
+    /// Requires `has_capacity_front_for(1)` to be true; caller must ensure capacity in advance.
+    /// No allocation occurs; pointers, references, and iterators remain valid (stable operation).
+    /// Strong exception safety; O(1) complexity.
+    /// Low-level primitive for performance-critical or reference-sensitive code.
+    constexpr T& push_front_stable(T const& value) { return emplace_front_stable(value); }
+
+    /// Move-constructs a new element at the front using existing capacity.
+    /// Requires `has_capacity_front_for(1)` to be true; caller must ensure capacity in advance.
+    /// No allocation occurs; pointers, references, and iterators remain valid (stable operation).
+    /// Strong exception safety; O(1) complexity.
+    /// Low-level primitive for performance-critical or reference-sensitive code.
+    constexpr T& push_front_stable(T&& value) { return emplace_front_stable(cc::move(value)); }
+
+    /// Constructs a new element at the back, allocating if necessary.
+    /// Automatically grows the container if insufficient capacity; tries realloc first, then full reallocation.
+    /// Pointers, references, and iterators may be invalidated if reallocation occurs.
+    /// Strong exception safety; amortized O(1) complexity.
+    /// Standard push-like operation for dynamic containers.
+    template <class... Args>
+    constexpr T& emplace_back(Args&&... args)
+    {
+        static_assert(
+            requires { T(cc::forward<Args>(args)...); }, "emplace_back: T is not constructible from "
+                                                         "the provided argument types");
+
+        // note: we only call the ctor in one code location here to help inlining
+
+        // only if needed
+        // will clean up itself in case T(...) throws
+        allocation<T> new_allocation;
+        allocation<T>* active_alloc = &_data;
+
+        // ensure capacity
+        if (!has_capacity_back_for(1))
+        {
+            // exponential growth strategy, at least sizeof(T) more
+            auto const new_size_request_min
+                = allocating_container::alloc_grow_size_for(_data.alloc_size_bytes() + sizeof(T));
+            auto const new_size_request_max = new_size_request_min + cc::min(new_size_request_min, alloc_max_slack);
+
+            // try realloc first
+            if (!_data.try_resize_alloc(new_size_request_min, new_size_request_max))
+            {
+                // otherwise we need a full new allocation
+                // TODO: think about re-center logic for cc::devector
+                new_allocation = cc::allocation<T>::create_empty_bytes(new_size_request_min, new_size_request_max,
+                                                                       alloc_alignment, _data.custom_resource);
+
+                // and we also re-wire the active alloc
+                active_alloc = &new_allocation;
+            }
+        }
+        CC_ASSERT(active_alloc->alloc_end - (std::byte const*)active_alloc->obj_end >= sizeof(T), "realloc bug");
+
+        // now construct new object into active alloc
+        // we do this BEFORE moving the other objects
+        // because the construction might still reference them
+        // and so that a throwing T(...) doesn't break the container
+        // (an exception here means the empty new_allocation is cleaned up again and the container is untouched)
+        // NOTE: single syntactic construction site here (no branches) helps the inliner be more aggressive
+        auto const p = new (cc::placement_new, active_alloc->obj_end) T(cc::forward<Args>(args)...);
+        active_alloc->obj_end++; // _after_ so exceptions in T(...) leave the state valid
+
+        // if we have a new allocation
+        if (active_alloc == &new_allocation)
+        {
+            // move over old elements now
+            auto tmp_end = new_allocation.obj_start;
+            impl::move_create_objects_to(tmp_end, _data.obj_start, _data.obj_end);
+            CC_ASSERT(tmp_end + 1 == new_allocation.obj_end, "inconsistent alloc state");
+
+            // and replace the current allocation
+            _data = cc::move(new_allocation);
+        }
+
+        return *p;
+    }
 
     // ctors / allocation
 public:
