@@ -165,6 +165,45 @@ constexpr void move_create_objects_to(T*& dest_end, T* src_start, T* src_end)
     }
 }
 
+/// Move-constructs objects from [src_start, src_end) using placement new in reverse order.
+/// dest_start is decremented for each successfully constructed object.
+/// IMPORTANT: Assumes the objects at [*dest_start - (src_end - src_start), *dest_start) are NOT yet constructed
+/// (uninitialized memory). This function initializes the lifetime of objects ending at *dest_start, moving backwards.
+/// Constructs from src_end-1 down to src_start, placing them at dest_start-1, dest_start-2, etc.
+/// Empty ranges (src_start == src_end) and nullptr are valid and result in a no-op. Trivially copyable types are
+/// optimized to use memcpy at compile time.
+///
+/// Usage pattern:
+///   auto obj_end = (T*)uninitialized_memory_end;
+///   auto obj_start = obj_end;
+///   move_create_objects_to_reverse(obj_start, src, src + count);
+///   // [obj_start, obj_end) is now the constructed live range (constructed in reverse)
+template <class T>
+constexpr void move_create_objects_to_reverse(T*& dest_start, T* src_start, T* src_end)
+{
+    static_assert(sizeof(T) > 0, "T must be a complete type (did you forget to include a header?)");
+    static_assert(std::is_move_constructible_v<T>, "T must be move constructible");
+
+    if constexpr (std::is_trivially_copyable_v<T>)
+    {
+        auto const size = src_end - src_start;
+        if (size > 0)
+        {
+            dest_start -= size;
+            cc::memcpy(dest_start, src_start, size * sizeof(T));
+        }
+    }
+    else
+    {
+        while (src_start != src_end)
+        {
+            --src_end;
+            new (cc::placement_new, dest_start - 1) T(cc::move(*src_end));
+            --dest_start; // _after_ construction so exceptions leave dest_start pointing to the constructed range
+        }
+    }
+}
+
 /// Copy-assigns objects from [src_start, src_end) using copy assignment operator.
 /// dest_end is incremented for each successfully assigned object.
 /// IMPORTANT: Assumes the objects at [*dest_end, *dest_end + (src_end - src_start)) are already constructed (alive).
@@ -740,6 +779,26 @@ public:
 /// Member functions with the `_stable` suffix guarantee that they will never reallocate the buffer
 /// or move/invalidate live objects. They keep existing references, pointers, and iterators stable.
 /// These functions will typically assert that sufficient allocation capacity is already present.
+///
+///
+/// === Exception & reference guarantees ===
+///
+/// Applies to all push/emplace operations (except _stable variants, which never allocate).
+///
+/// Allocation failures leave the container unchanged.
+/// Capacity may increase even if a subsequent operation fails.
+/// Element construction failures leave size and live range unchanged.
+///
+/// Reallocation always uses move construction (no copy fallback).
+/// If a move throws during reallocation, the container remains structurally valid
+/// (size, bounds, iteration correct), but some elements may be in moved-from state.
+///
+/// The old allocation remains valid until new elements are constructed.
+/// Constructing from existing elements (e.g. `emplace_back(v[i])`) is safe during growth.
+///
+/// Any reallocation invalidates pointers, references, and iterators.
+///
+/// Design favors predictable behavior over preserving values when moves throw.
 template <class T, class ContainerT>
 struct cc::allocating_container
 {
@@ -954,11 +1013,92 @@ public:
     /// Low-level primitive for performance-critical or reference-sensitive code.
     constexpr T& push_front_stable(T&& value) { return emplace_front_stable(cc::move(value)); }
 
-    /// Constructs a new element at the back, allocating if necessary.
-    /// Automatically grows the container if insufficient capacity; tries realloc first, then full reallocation.
-    /// Pointers, references, and iterators may be invalidated if reallocation occurs.
-    /// Strong exception safety; amortized O(1) complexity.
-    /// Standard push-like operation for dynamic containers.
+    /// Ensures capacity to add count elements at the back, allocating if necessary.
+    /// Returns a pointer to obj_end that can be used for construction and direct increment.
+    ///
+    /// Performance design:
+    /// This function is marked CC_COLD_FUNC and should only be called from [[unlikely]] branches.
+    /// The happy path (sufficient capacity) avoids function calls entirely, allowing the compiler
+    /// to inline T(...) construction without any indirection.
+    ///
+    /// Usage pattern (begin/finalize sandwich):
+    /// The returned pointer points to either &_data.obj_end (if realloc succeeded) or
+    /// &new_allocation.obj_end (if full reallocation needed). This allows directly incrementing
+    /// obj_end after each construction, writing through to the correct allocation.
+    ///
+    /// Example usage:
+    ///   allocation<T> new_allocation;
+    ///   auto p_obj_end = &_data.obj_end;
+    ///
+    ///   if (!has_capacity_back_for(1)) [[unlikely]]
+    ///       p_obj_end = ensure_capacity_back_begin(new_allocation, 1);
+    ///
+    ///   // Construct new object into active alloc
+    ///   // Do this BEFORE moving other objects because construction might reference them
+    ///   // and so that a throwing T(...) doesn't break the container
+    ///   // (an exception here means the empty new_allocation is cleaned up and container is untouched)
+    ///   // NOTE: single syntactic construction site here (no branches) helps the inliner be more aggressive
+    ///   auto const p = new (cc::placement_new, *p_obj_end) T(...);
+    ///   (*p_obj_end)++; // _after_ so exceptions in T(...) leave state valid
+    ///
+    ///   if (new_allocation.is_valid()) [[unlikely]]
+    ///       ensure_capacity_back_finalize(new_allocation);
+    CC_COLD_FUNC [[nodiscard]] constexpr T** ensure_capacity_back_begin(allocation<T>& new_allocation, isize count)
+    {
+        CC_ASSERT(!has_capacity_back_for(count), "only call this if we don't have enough capacity");
+
+        // exponential growth strategy, at least sizeof(T) more
+        auto const new_size_request_min
+            = allocating_container::alloc_grow_size_for(_data.alloc_size_bytes() + sizeof(T) * count);
+        auto const new_size_request_max = new_size_request_min + cc::min(new_size_request_min, alloc_max_slack);
+
+        // try realloc first
+        if (_data.try_resize_alloc(new_size_request_min, new_size_request_max))
+            return &_data.obj_end;
+
+        // otherwise we need a full new allocation
+        // TODO: think about re-center logic for cc::devector
+        new_allocation = cc::allocation<T>::create_empty_bytes(new_size_request_min, new_size_request_max,
+                                                               alloc_alignment, _data.custom_resource);
+
+        // Construct new elements where they would be in the new allocation (after old elements)
+        // The old allocation remains valid during construction phase
+        // The new allocation's live range tracks only newly-constructed elements for exception safety:
+        // If we add multiple elements and construction throws, only the successfully constructed
+        // new elements (e.g. first k of push_back_range when at k+1) need cleanup via new_allocation's dtor
+        // Thus the live range semantically starts behind the old allocation's live range
+        // In finalize, when we move over old elements, we extend it to the full allocation
+        new_allocation.obj_start = new_allocation.obj_start + size();
+        new_allocation.obj_end = new_allocation.obj_start;
+        return &new_allocation.obj_end;
+    }
+
+    /// Finalizes the back capacity operation after elements have been constructed.
+    /// PRECONDITION: new_allocation must be valid (i.e., full reallocation occurred, not just realloc).
+    /// Moves old elements into the new allocation and replaces _data.
+    /// The obj_end has already been updated via the pointer returned by ensure_capacity_back_begin.
+    CC_COLD_FUNC constexpr void ensure_capacity_back_finalize(allocation<T>& new_allocation)
+    {
+        CC_ASSERT(new_allocation.is_valid(), "only call this when we have a temporary alloc");
+
+        // Move over old elements in reverse order for exception safety with throwing move ctors
+        // new_allocation.obj_start points to where the old elements should go (before newly constructed elements)
+        // We move from _data in reverse: last element first, first element last
+        // This is exception safe: if a move throws, new_allocation contains a valid contiguous range
+        // (newly constructed elements at the end + successfully moved old elements in front)
+        // Note: We don't decrement _data.obj_end during the move - moves in C++ are non-destructive
+        // The old allocation remains in a moved-from but valid state, cleaned up when _data is destroyed below
+        impl::move_create_objects_to_reverse(new_allocation.obj_start, _data.obj_start, _data.obj_end);
+
+        // Replace the current allocation
+        // This destroys _data (cleaning up the moved-from old elements) and adopts new_allocation
+        _data = cc::move(new_allocation);
+    }
+
+    /// Appends a new element to the back, allocating if necessary.
+    /// If has_capacity_back_for(1) is true, no invalidation of any kind occurs.
+    /// Otherwise, see "Exception & reference guarantees" section above.
+    /// Amortized O(1) complexity.
     template <class... Args>
     constexpr T& emplace_back(Args&&... args)
     {
@@ -966,58 +1106,28 @@ public:
             requires { T(cc::forward<Args>(args)...); }, "emplace_back: T is not constructible from "
                                                          "the provided argument types");
 
-        // note: we only call the ctor in one code location here to help inlining
-
-        // only if needed
-        // will clean up itself in case T(...) throws
         allocation<T> new_allocation;
-        allocation<T>* active_alloc = &_data;
+        auto p_obj_end = &_data.obj_end;
 
-        // ensure capacity
-        if (!has_capacity_back_for(1))
-        {
-            // exponential growth strategy, at least sizeof(T) more
-            auto const new_size_request_min
-                = allocating_container::alloc_grow_size_for(_data.alloc_size_bytes() + sizeof(T));
-            auto const new_size_request_max = new_size_request_min + cc::min(new_size_request_min, alloc_max_slack);
+        if (!has_capacity_back_for(1)) [[unlikely]]
+            p_obj_end = ensure_capacity_back_begin(new_allocation, 1);
 
-            // try realloc first
-            if (!_data.try_resize_alloc(new_size_request_min, new_size_request_max))
-            {
-                // otherwise we need a full new allocation
-                // TODO: think about re-center logic for cc::devector
-                new_allocation = cc::allocation<T>::create_empty_bytes(new_size_request_min, new_size_request_max,
-                                                                       alloc_alignment, _data.custom_resource);
+        auto const p = new (cc::placement_new, *p_obj_end) T(cc::forward<Args>(args)...);
+        (*p_obj_end)++; // _after_ so exceptions in T(...) leave state valid
 
-                // and we also re-wire the active alloc
-                active_alloc = &new_allocation;
-            }
-        }
-        CC_ASSERT(active_alloc->alloc_end - (std::byte const*)active_alloc->obj_end >= sizeof(T), "realloc bug");
-
-        // now construct new object into active alloc
-        // we do this BEFORE moving the other objects
-        // because the construction might still reference them
-        // and so that a throwing T(...) doesn't break the container
-        // (an exception here means the empty new_allocation is cleaned up again and the container is untouched)
-        // NOTE: single syntactic construction site here (no branches) helps the inliner be more aggressive
-        auto const p = new (cc::placement_new, active_alloc->obj_end) T(cc::forward<Args>(args)...);
-        active_alloc->obj_end++; // _after_ so exceptions in T(...) leave the state valid
-
-        // if we have a new allocation
-        if (active_alloc == &new_allocation)
-        {
-            // move over old elements now
-            auto tmp_end = new_allocation.obj_start;
-            impl::move_create_objects_to(tmp_end, _data.obj_start, _data.obj_end);
-            CC_ASSERT(tmp_end + 1 == new_allocation.obj_end, "inconsistent alloc state");
-
-            // and replace the current allocation
-            _data = cc::move(new_allocation);
-        }
+        if (new_allocation.is_valid()) [[unlikely]]
+            ensure_capacity_back_finalize(new_allocation);
 
         return *p;
     }
+
+    /// Appends a copy of the element to the back.
+    /// See emplace_back for guarantees and complexity.
+    constexpr T& push_back(T const& value) { return emplace_back(value); }
+
+    /// Appends an element to the back via move.
+    /// See emplace_back for guarantees and complexity.
+    constexpr T& push_back(T&& value) { return emplace_back(cc::move(value)); }
 
     // ctors / allocation
 public:
