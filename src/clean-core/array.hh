@@ -23,25 +23,37 @@ struct cc::array : private cc::allocating_container<T, array<T>>
 {
     using container_impl = cc::allocating_container<T, array<T>>;
 
-    using container_impl::operator[];
-    using container_impl::back;
-    using container_impl::data;
-    using container_impl::front;
+    // element access
+public:
+    using container_impl::operator[]; // access element by index
+    using container_impl::back;       // access last element
+    using container_impl::data;       // get pointer to underlying storage
+    using container_impl::front;      // access first element
 
-    using container_impl::begin;
-    using container_impl::end;
+    // iterators
+public:
+    using container_impl::begin; // get iterator to first element
+    using container_impl::end;   // get iterator to one past last element
 
-    using container_impl::empty;
-    using container_impl::size;
+    // queries
+public:
+    using container_impl::empty;      // check if array is empty
+    using container_impl::size;       // get number of elements
+    using container_impl::size_bytes; // get total size in bytes
 
-    using container_impl::create_copy_of;
-    using container_impl::create_defaulted;
-    using container_impl::create_filled;
-    using container_impl::create_from_allocation;
-    using container_impl::create_uninitialized;
+    // factories
+public:
+    using container_impl::create_copy_of;         // create deep copy from span
+    using container_impl::create_defaulted;       // create with default-constructed elements
+    using container_impl::create_filled;          // create with copies of a value
+    using container_impl::create_from_allocation; // create from existing allocation
+    using container_impl::create_uninitialized;   // create with uninitialized memory
 
-    using container_impl::extract_allocation;
+    // allocation management
+public:
+    using container_impl::extract_allocation; // extract underlying allocation
 
+    // array has deep-copy value semantics
     array() = default;
     ~array() = default;
     array(array&&) = default;

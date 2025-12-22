@@ -344,7 +344,7 @@ struct cc::allocation
     /// allocation that carries the desired resource; subsequent growth/reallocation uses that resource.
     cc::memory_resource const* custom_resource = nullptr;
 
-    // api
+    // minimal helper api
 public:
     /// Returns the effective resource to use for allocation operations.
     /// Resolves custom_resource if non-null, otherwise falls back to default_memory_resource.
@@ -356,65 +356,6 @@ public:
     /// Returns the span of live objects
     /// Note: proper mutability ("const correctness") is user responsibility
     [[nodiscard]] cc::span<T> obj_span() const { return cc::span<T>(obj_start, obj_end); }
-
-    /// Returns the number of live objects
-    [[nodiscard]] isize obj_size() const { return obj_end - obj_start; }
-
-    /// Returns the live object size in bytes
-    [[nodiscard]] isize obj_size_bytes() const { return (obj_end - obj_start) * sizeof(T); }
-
-    /// Returns true if there are any live objects
-    [[nodiscard]] bool has_objects() const { return obj_start != obj_end; }
-
-    /// Returns a reference to the object at the given index
-    /// Performs bounds checking via CC_ASSERT
-    [[nodiscard]] T& obj_at(isize idx)
-    {
-        auto const p_obj = obj_start + idx;
-        CC_ASSERT(obj_start <= p_obj && p_obj < obj_end, "index out of bounds");
-        return *p_obj;
-    }
-
-    /// Returns a const reference to the object at the given index
-    /// Performs bounds checking via CC_ASSERT
-    [[nodiscard]] T const& obj_at(isize idx) const
-    {
-        auto const p_obj = obj_start + idx;
-        CC_ASSERT(obj_start <= p_obj && p_obj < obj_end, "index out of bounds");
-        return *p_obj;
-    }
-
-    /// Returns a reference to the first live object
-    /// Asserts that the allocation is non-empty
-    [[nodiscard]] T& obj_front()
-    {
-        CC_ASSERT(obj_start < obj_end, "allocation is empty");
-        return *obj_start;
-    }
-
-    /// Returns a const reference to the first live object
-    /// Asserts that the allocation is non-empty
-    [[nodiscard]] T const& obj_front() const
-    {
-        CC_ASSERT(obj_start < obj_end, "allocation is empty");
-        return *obj_start;
-    }
-
-    /// Returns a reference to the last live object
-    /// Asserts that the allocation is non-empty
-    [[nodiscard]] T& obj_back()
-    {
-        CC_ASSERT(obj_start < obj_end, "allocation is empty");
-        return *(obj_end - 1);
-    }
-
-    /// Returns a const reference to the last live object
-    /// Asserts that the allocation is non-empty
-    [[nodiscard]] T const& obj_back() const
-    {
-        CC_ASSERT(obj_start < obj_end, "allocation is empty");
-        return *(obj_end - 1);
-    }
 
     // factories
 public:
@@ -662,18 +603,44 @@ struct cc::allocating_container
 public:
     /// Returns a reference to the element at index i.
     /// Precondition: 0 <= i < size().
-    [[nodiscard]] constexpr T& operator[](isize i) { return _data.obj_at(i); }
-    [[nodiscard]] constexpr T const& operator[](isize i) const { return _data.obj_at(i); }
+    [[nodiscard]] constexpr T& operator[](isize i)
+    {
+        auto const p_obj = _data.obj_start + i;
+        CC_ASSERT(_data.obj_start <= p_obj && p_obj < _data.obj_end, "index out of bounds");
+        return *p_obj;
+    }
+    [[nodiscard]] constexpr T const& operator[](isize i) const
+    {
+        auto const p_obj = _data.obj_start + i;
+        CC_ASSERT(_data.obj_start <= p_obj && p_obj < _data.obj_end, "index out of bounds");
+        return *p_obj;
+    }
 
     /// Returns a reference to the first element.
     /// Precondition: !empty().
-    [[nodiscard]] constexpr T& front() { return _data.obj_front(); }
-    [[nodiscard]] constexpr T const& front() const { return _data.obj_front(); }
+    [[nodiscard]] constexpr T& front()
+    {
+        CC_ASSERT(_data.obj_start < _data.obj_end, "allocation is empty");
+        return *_data.obj_start;
+    }
+    [[nodiscard]] constexpr T const& front() const
+    {
+        CC_ASSERT(_data.obj_start < _data.obj_end, "allocation is empty");
+        return *_data.obj_start;
+    }
 
     /// Returns a reference to the last element.
     /// Precondition: !empty().
-    [[nodiscard]] constexpr T& back() { return _data.obj_back(); }
-    [[nodiscard]] constexpr T const& back() const { return _data.obj_back(); }
+    [[nodiscard]] constexpr T& back()
+    {
+        CC_ASSERT(_data.obj_start < _data.obj_end, "allocation is empty");
+        return *(_data.obj_end - 1);
+    }
+    [[nodiscard]] constexpr T const& back() const
+    {
+        CC_ASSERT(_data.obj_start < _data.obj_end, "allocation is empty");
+        return *(_data.obj_end - 1);
+    }
 
     /// Returns a pointer to the underlying contiguous storage.
     /// May be nullptr if the array is default-constructed or empty.
@@ -693,9 +660,11 @@ public:
     // queries
 public:
     /// Returns the number of elements in the array.
-    [[nodiscard]] constexpr isize size() const { return _data.obj_size(); }
+    [[nodiscard]] constexpr isize size() const { return _data.obj_end - _data.obj_start; }
+    /// Returns the total size in bytes of all elements in the array.
+    [[nodiscard]] constexpr isize size_bytes() const { return (_data.obj_end - _data.obj_start) * sizeof(T); }
     /// Returns true if size() == 0.
-    [[nodiscard]] constexpr bool empty() const { return !_data.has_objects(); }
+    [[nodiscard]] constexpr bool empty() const { return _data.obj_start == _data.obj_end; }
 
     // ctors / allocation
 public:

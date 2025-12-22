@@ -888,7 +888,7 @@ TEST("array - create_from_allocation adopts without copying")
     {
         auto alloc = cc::allocation<int>::create_filled(5, 42, nullptr);
         auto const original_data = alloc.obj_start;
-        auto const original_size = alloc.obj_size();
+        auto const original_size = alloc.obj_end - alloc.obj_start;
 
         auto a = cc::array<int>::create_from_allocation(cc::move(alloc));
 
@@ -946,11 +946,11 @@ TEST("array - extract_allocation round-trip")
 
         CHECK(a.size() == 0);
         CHECK(a.empty() == true);
-        CHECK(alloc.obj_size() == 10);
+        CHECK(alloc.obj_end - alloc.obj_start == 10);
         CHECK(alloc.custom_resource == &res);
 
         for (int i = 0; i < 10; ++i)
-            CHECK(alloc.obj_at(i) == i * 5);
+            CHECK(alloc.obj_start[i] == i * 5);
     }
 
     SECTION("round-trip preserves values")
