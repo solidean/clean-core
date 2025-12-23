@@ -7,17 +7,22 @@
 // - sequence entry points
 // - retyping APIs
 // - equality, order, hashing
-// - insert/erase operations
-// - reserve with specific strategy (front/back/balanced)
-// - shrink_to_fit
-// - assign operations
-// - emplace/insert at arbitrary positions
+// - insert/emplace at arbitrary positions
+// - push_back_range
+// - contains/contains_where/find/find_where/count/count_where
+// - sort
+// - assign (replace parts of content)
 
 
+/// Dynamically allocated vector of T elements with move-only semantics.
+/// Similar to cc::vector but without copy operations.
+/// Owns the underlying memory through cc::allocation<T>.
+/// Compatible with the allocation-share protocol for efficient memory sharing.
+/// Supports move semantics and allocator-aware construction.
 template <class T>
-struct cc::unique_vector : private cc::allocating_container<T, vector<T>>
+struct cc::unique_vector : private cc::allocating_container<T, unique_vector<T>>
 {
-    using base = cc::allocating_container<T, vector<T>>;
+    using base = cc::allocating_container<T, unique_vector<T>>;
 
     // element access
 public:
@@ -43,7 +48,7 @@ public:
     using base::has_capacity_back_for; // check if capacity exists for N elements at back
 
     /// Returns the total capacity (elements that can be stored without reallocation).
-    /// For vector, capacity refers to back capacity (append capacity).
+    /// For unique_vector, capacity refers to back capacity (append capacity).
     [[nodiscard]] constexpr isize capacity() const { return size() + capacity_back(); }
 
     // factories
@@ -55,19 +60,15 @@ public:
     using base::create_uninitialized;   // create with uninitialized memory
     using base::create_with_capacity;   // create with reserved capacity
 
-    // allocation management
+    // appending operations
 public:
-    using base::extract_allocation; // extract underlying allocation
-
-    // modifiers - growth operations
-public:
-    using base::clear; // destroy all elements, size becomes 0
-
     using base::emplace_back;        // construct element at back (with allocation if needed)
     using base::emplace_back_stable; // construct element at back (requires capacity)
     using base::push_back;           // add element at back (with allocation if needed)
     using base::push_back_stable;    // add element at back (requires capacity)
 
+    // single element removal
+public:
     using base::pop_back;    // remove and return last element
     using base::remove_back; // remove last element (fast path, no return value)
 
@@ -76,19 +77,62 @@ public:
     using base::remove_at;           // remove element at index (preserves order)
     using base::remove_at_unordered; // remove element at index (O(1), does not preserve order)
 
-    // TODO: resize(isize new_size) - resize to new_size, default-construct new elements (should be in allocating_container)
-    // TODO: resize(isize new_size, T const& value) - resize to new_size, copy-construct from value (should be in allocating_container)
-    // TODO: reserve(isize capacity) - ensure capacity without changing size
-    // TODO: shrink_to_fit() - reduce capacity to match size
-    // TODO: assign(isize count, T const& value) - replace contents
-    // TODO: assign(Iterator first, Iterator last) - replace contents from range
+    // range removal
+public:
+    using base::remove_at_range;           // remove range [start, start+count) (preserves order)
+    using base::remove_at_range_unordered; // remove range [start, start+count) (O(count), does not preserve order)
+    using base::remove_from_to;            // remove range [start, end) (preserves order)
+    using base::remove_from_to_unordered;  // remove range [start, end) (O(end-start), does not preserve order)
+
+    // predicate-based removal
+public:
+    using base::remove_all_where;   // remove all elements matching predicate
+    using base::remove_first_where; // remove first element matching predicate
+    using base::remove_last_where;  // remove last element matching predicate
+
+    using base::remove_all_value;   // remove all elements equal to value
+    using base::remove_first_value; // remove first element equal to value
+    using base::remove_last_value;  // remove last element equal to value
+
+    using base::retain_all_where; // retain only elements matching predicate (remove others)
+
+    // resizing operations
+public:
+    using base::resize_down_to;          // shrink to new_size by destroying trailing elements
+    using base::resize_to_constructed;   // resize with custom construction args
+    using base::resize_to_defaulted;     // resize to new_size, default-construct new elements
+    using base::resize_to_filled;        // resize to new_size, fill new elements with value
+    using base::resize_to_uninitialized; // resize to new_size with uninitialized memory (trivial types only)
+
+    using base::clear_resize_to_constructed; // clear and resize with custom construction args
+    using base::clear_resize_to_defaulted;   // clear and resize to new_size, default-construct all elements
+    using base::clear_resize_to_filled;      // clear and resize to new_size, fill all elements with value
+
+    // capacity management
+public:
+    /// Ensures at least `count` elements can be stored without reallocation.
+    /// Uses exponential growth strategy to amortize future reallocations.
+    void reserve(isize count) { reserve_back(count - size()); }
+
+    /// Ensures at least `count` elements can be stored without reallocation.
+    /// Allocates exactly the needed space (rounded up to alignment).
+    void reserve_exact(isize count) { reserve_back_exact(count - size()); }
+
+    using base::reserve_back;       // ensure capacity for N more elements at back (exponential growth)
+    using base::reserve_back_exact; // ensure capacity for N more elements at back (exact allocation)
+    using base::shrink_to_fit;      // reduce capacity to match size
+
+    // other mutations
+public:
+    using base::clear; // destroy all elements, size becomes 0
+    using base::fill;  // fill all elements with value
+
     // TODO: insert(Iterator pos, T const& value) - insert element at position
     // TODO: insert(Iterator pos, T&& value) - insert element at position
     // TODO: insert(Iterator pos, isize count, T const& value) - insert multiple copies
-    // TODO: erase(Iterator pos) - remove element at position
-    // TODO: erase(Iterator first, Iterator last) - remove range of elements
-    // TODO: emplace(Iterator pos, Args&&... args) - construct element at position
 
+    // ctors / allocation management
+public:
     // unique_vector has move-only semantics
     using base::allocating_container; // inherit constructors (including initializer_list)
     unique_vector() = default;
@@ -97,6 +141,8 @@ public:
     unique_vector& operator=(unique_vector&&) = default;
     unique_vector(unique_vector const&) = delete;
     unique_vector& operator=(unique_vector const&) = delete;
+
+    using base::extract_allocation; // extract underlying allocation
 
     friend base;
 

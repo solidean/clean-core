@@ -46,6 +46,10 @@ public:
     using base::create_from_allocation; // create from existing allocation
     using base::create_uninitialized;   // create with uninitialized memory
 
+    // content mutation
+public:
+    using base::fill; // fill all elements with value
+
     // allocation management
 public:
     using base::extract_allocation; // extract underlying allocation
