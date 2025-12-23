@@ -99,4 +99,7 @@ public:
     unique_vector& operator=(unique_vector const&) = delete;
 
     friend base;
+
+private:
+    static constexpr bool uses_capacity_front = false;
 };

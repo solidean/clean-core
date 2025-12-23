@@ -207,13 +207,15 @@ public:
     /// On success, alloc_end is updated to reflect the new allocation size.
     /// On failure, the allocation remains unchanged.
     /// IMPORTANT: Cannot resize below the size needed by live objects (obj_end).
-    [[nodiscard]] bool try_resize_alloc(isize min_bytes, isize max_bytes)
+    /// NOTE: Can be used for both growing and shrinking. Does not check if the allocation
+    /// is already within [min_bytes, max_bytes]; the caller should check this if desired.
+    [[nodiscard]] bool try_resize_alloc_inplace(isize min_bytes, isize max_bytes)
     {
-        CC_ASSERT(min_bytes >= 0 && max_bytes >= min_bytes, "try_resize_alloc: invalid size range");
+        CC_ASSERT(min_bytes >= 0 && max_bytes >= min_bytes, "try_resize_alloc_inplace: invalid size range");
 
         // Cannot resize below the memory occupied by live objects
         isize const obj_end_bytes = (byte const*)obj_end - alloc_start;
-        CC_ASSERT(min_bytes >= obj_end_bytes, "try_resize_alloc: cannot resize below live object range");
+        CC_ASSERT(min_bytes >= obj_end_bytes, "try_resize_alloc_inplace: cannot resize below live object range");
 
         // If no allocation exists, cannot resize
         if (alloc_start == nullptr)
@@ -235,6 +237,39 @@ public:
         return true;
     }
 
+    /// Resize the allocation to a size between min_bytes and max_bytes with a new alignment.
+    /// Always tries to resize in-place first. If that fails, allocates a new buffer,
+    /// moves the live objects over, and replaces the current allocation.
+    /// IMPORTANT: Cannot resize below the size needed by live objects (obj_end).
+    /// NOTE: Can be used for both growing and shrinking. Does not check if the allocation
+    /// is already within [min_bytes, max_bytes]; the caller should check this if desired.
+    void resize_alloc(isize min_bytes, isize max_bytes, isize new_alignment)
+    {
+        CC_ASSERT(min_bytes >= 0 && max_bytes >= min_bytes, "resize_alloc: invalid size range");
+        CC_ASSERT(new_alignment >= alignof(T), "new_alignment must be at least alignof(T)");
+
+        // Cannot resize below the memory occupied by live objects
+        isize const obj_end_bytes = (byte const*)obj_end - alloc_start;
+        CC_ASSERT(min_bytes >= obj_end_bytes, "resize_alloc: cannot resize below live object range");
+
+        // Try to resize in-place first if current allocation already satisfies new alignment
+        if (cc::is_aligned(alloc_start, new_alignment) && try_resize_alloc_inplace(min_bytes, max_bytes))
+        {
+            // Write through the new alignment (in-place resize doesn't change it)
+            alignment = new_alignment;
+            return;
+        }
+
+        // In-place resize failed or alignment requirement not satisfied, allocate a new buffer
+        auto new_alloc = allocation::create_empty_bytes(min_bytes, max_bytes, new_alignment, custom_resource);
+
+        // Move-create live objects to the new allocation
+        impl::move_create_objects_to(new_alloc.obj_end, obj_start, obj_end);
+
+        // Move the new allocation to *this (this destroys the old allocation)
+        *this = cc::move(new_alloc);
+    }
+
     // factories
 public:
     /// Creates an empty allocation with reserved capacity but no live objects.
@@ -248,12 +283,14 @@ public:
     /// The alignment parameter allows over-alignment beyond alignof(T).
     /// min_bytes == 0 results in nullptr with no real allocation call.
     [[nodiscard]] static allocation create_empty_bytes(isize min_bytes,
-                                                       isize max_bytes,
-                                                       isize alignment,
-                                                       memory_resource const* resource) // NOLINT
+                                                       isize max_bytes, // NOLINT
+                                                       isize alignment, // NOLINT
+                                                       memory_resource const* resource,
+                                                       isize obj_offset = 0)
     {
         CC_ASSERT(alignment >= alignof(T), "alignment must be at least alignof(T)");
         CC_ASSERT(0 <= min_bytes && min_bytes <= max_bytes, "must have 0 <= min_bytes <= max_bytes");
+        CC_ASSERT(obj_offset * isize(sizeof(T)) <= min_bytes, "obj_offset would result in invalid allocation");
 
         allocation result;
         result.custom_resource = resource;
@@ -267,8 +304,8 @@ public:
             = res.allocate_bytes(&result.alloc_start, min_bytes, max_bytes, result.alignment, res.userdata);
         result.alloc_end = result.alloc_start + actual_byte_size;
 
-        // Initialize obj_start and obj_end to alloc_start (zero live objects, full capacity)
-        result.obj_start = (T*)result.alloc_start;
+        // Initialize obj_start and obj_end to alloc_start + obj_offset (zero live objects, full capacity)
+        result.obj_start = (T*)result.alloc_start + obj_offset;
         result.obj_end = result.obj_start;
 
         return result;

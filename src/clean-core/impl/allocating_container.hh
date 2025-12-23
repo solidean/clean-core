@@ -86,6 +86,15 @@ struct cc::allocating_container
     /// allocations balloon uncontrollably.
     static constexpr isize alloc_max_slack = 4096;
 
+    /// Customization knob for deriving containers: if true, tries to preserve existing front capacity
+    /// on some reallocation calls.
+    ///
+    /// This signals that the container actively uses front capacity (e.g., devector with push_front).
+    /// When true, reallocations will attempt to preserve existing front space when growing the allocation.
+    /// When false (e.g., vector), reallocations for back-only growth will drop any existing front capacity
+    /// to avoid wasting memory on unused space.
+    static constexpr bool uses_capacity_front = true;
+
     // element access
 public:
     /// Returns a reference to the element at index i.
@@ -206,6 +215,22 @@ public:
         return cc::align_up(cc::max(curr_size << 1, min_size), alloc_alignment);
     }
 
+private:
+    // Helper: allocates a new buffer with the specified size and obj_offset,
+    // moves existing objects to it, and replaces _data with the new allocation.
+    void move_to_new_allocation(isize min_bytes, isize max_bytes, isize obj_offset)
+    {
+        auto new_allocation = cc::allocation<T>::create_empty_bytes(min_bytes, max_bytes, alloc_alignment,
+                                                                    _data.custom_resource, obj_offset);
+
+        // Move old elements to new allocation
+        impl::move_create_objects_to(new_allocation.obj_end, _data.obj_start, _data.obj_end);
+
+        // Replace current allocation
+        _data = cc::move(new_allocation);
+    }
+
+public:
     // destroys the live object range, so that obj_start == obj_end afterwards
     // calls all destructors, does not move obj_start
     constexpr void clear()
@@ -224,14 +249,95 @@ public:
     // resize_down_to(isize new_size) -- asserts that new_size <= size
     // NOTE: we always resize at the end because resize keeps the prefix stable (the first min(size, new_size) elements are the same)
     //       also, this way we can try to resize the allocation inplace efficiently
-    // shrink_to_fit
+    // shrink_to_fit -- must be idempotent
 
-    // TODO:
-    // reserve_front(isize count)
-    // reserve_back(isize count)
-    // reserve_front_exact(isize count)
-    // reserve_back_exact(isize count)
-    // -> the _exact versions guarantee capacity_front/back >= count (same as non-exact) but without exponential growth "protection"
+    /// Ensures at least `count` elements can be inserted at the back without reallocation.
+    /// Uses exponential growth strategy to amortize future reallocations.
+    /// If sufficient capacity already exists, this is a no-op.
+    void reserve_back(isize count)
+    {
+        if (has_capacity_back_for(count))
+            return;
+
+        // Compute new allocation size for in-place resize
+        // Preserve existing front capacity by growing from current alloc size
+        auto const inplace_size_min
+            = alloc_grow_size_for(_data.alloc_size_bytes(), _data.alloc_size_bytes() + count * sizeof(T));
+        auto const inplace_size_max = inplace_size_min + cc::min(inplace_size_min, alloc_max_slack);
+
+        // Try to resize in place first
+        if (_data.try_resize_alloc_inplace(inplace_size_min, inplace_size_max))
+            return;
+
+        // In-place resize failed, allocate new buffer
+        // Now we can choose how much front capacity to preserve
+        auto const new_capacity_front = container_t::uses_capacity_front ? capacity_front() : 0;
+        auto const obj_size = size();
+
+        auto const new_size_min = alloc_grow_size_for((new_capacity_front + obj_size + count) * sizeof(T));
+        auto const new_size_max = new_size_min + cc::min(new_size_min, alloc_max_slack);
+
+        move_to_new_allocation(new_size_min, new_size_max, new_capacity_front);
+    }
+
+    /// Ensures at least `count` elements can be inserted at the back without reallocation.
+    /// Guarantees capacity_back() >= count without exponential growth protection.
+    /// Allocates exactly the needed space (rounded up to alignment).
+    /// If sufficient capacity already exists, this is a no-op.
+    void reserve_back_exact(isize count)
+    {
+        if (has_capacity_back_for(count))
+            return;
+
+        // Compute exact needed size for in-place resize
+        // Preserve existing front capacity by growing from current alloc size
+        auto const inplace_size = cc::align_up(_data.alloc_size_bytes() + count * sizeof(T), alloc_alignment);
+
+        // Try to resize in place first
+        if (_data.try_resize_alloc_inplace(inplace_size, inplace_size))
+            return;
+
+        // In-place resize failed, allocate new buffer
+        // Now we can choose how much front capacity to preserve
+        auto const new_capacity_front = container_t::uses_capacity_front ? capacity_front() : 0;
+        auto const obj_size = size();
+
+        auto const new_size = cc::align_up((new_capacity_front + obj_size + count) * sizeof(T), alloc_alignment);
+
+        move_to_new_allocation(new_size, new_size, new_capacity_front);
+    }
+
+    /// Ensures at least `count` elements can be inserted at the front without reallocation.
+    /// Uses exponential growth strategy to amortize future reallocations.
+    /// If sufficient capacity already exists, this is a no-op.
+    void reserve_front(isize count)
+    {
+        if (has_capacity_front_for(count))
+            return;
+
+        // Compute new allocation size with exponential growth
+        auto const needed_bytes = _data.alloc_size_bytes() + count * sizeof(T);
+        auto const new_size_min = alloc_grow_size_for(_data.alloc_size_bytes(), needed_bytes);
+        auto const new_size_max = new_size_min + cc::min(new_size_min, alloc_max_slack);
+
+        move_to_new_allocation(new_size_min, new_size_max, count);
+    }
+
+    /// Ensures at least `count` elements can be inserted at the front without reallocation.
+    /// Guarantees capacity_front() >= count without exponential growth protection.
+    /// Allocates exactly the needed space (rounded up to alignment).
+    /// If sufficient capacity already exists, this is a no-op.
+    void reserve_front_exact(isize count)
+    {
+        if (has_capacity_front_for(count))
+            return;
+
+        // Compute exact needed size, aligned
+        auto const needed_bytes = _data.alloc_size_bytes() + count * sizeof(T);
+        auto const new_size = cc::align_up(needed_bytes, alloc_alignment);
+
+        move_to_new_allocation(new_size, new_size, count);
+    }
 
     // appends
 public:
@@ -331,13 +437,16 @@ public:
     {
         CC_ASSERT(!has_capacity_back_for(count), "only call this if we don't have enough capacity");
 
+        auto const new_capacity_front = container_t::uses_capacity_front ? capacity_front() : 0;
+        auto const obj_size = size();
+
         // exponential growth strategy, at least sizeof(T) more
         auto const new_size_request_min
-            = allocating_container::alloc_grow_size_for(_data.alloc_size_bytes() + sizeof(T) * count);
+            = allocating_container::alloc_grow_size_for((new_capacity_front + obj_size + count) * sizeof(T));
         auto const new_size_request_max = new_size_request_min + cc::min(new_size_request_min, alloc_max_slack);
 
         // try realloc first
-        if (_data.try_resize_alloc(new_size_request_min, new_size_request_max))
+        if (_data.try_resize_alloc_inplace(new_size_request_min, new_size_request_max))
             return &_data.obj_end;
 
         // otherwise we need a full new allocation
@@ -352,7 +461,7 @@ public:
         // new elements (e.g. first k of push_back_range when at k+1) need cleanup via new_allocation's dtor
         // Thus the live range semantically starts behind the old allocation's live range
         // In finalize, when we move over old elements, we extend it to the full allocation
-        new_allocation.obj_start = new_allocation.obj_start + size();
+        new_allocation.obj_start += new_capacity_front + size();
         new_allocation.obj_end = new_allocation.obj_start;
         return &new_allocation.obj_end;
     }
@@ -412,6 +521,12 @@ public:
     /// Appends an element to the back via move.
     /// See emplace_back for guarantees and complexity.
     constexpr T& push_back(T&& value) { return emplace_back(cc::move(value)); }
+
+    // TODO:
+    // - emplace_front
+    // - push_front
+    // - push_back_range
+    // - push_front_range
 
     // removals
 public:

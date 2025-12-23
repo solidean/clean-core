@@ -60,4 +60,7 @@ public:
     array& operator=(array const&) = default;
 
     friend base;
+
+private:
+    static constexpr bool uses_capacity_front = false;
 };

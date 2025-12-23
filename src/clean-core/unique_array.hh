@@ -55,4 +55,7 @@ public:
     unique_array& operator=(unique_array const&) = delete;
 
     friend base;
+
+private:
+    static constexpr bool uses_capacity_front = false;
 };
