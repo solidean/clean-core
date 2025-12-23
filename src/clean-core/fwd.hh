@@ -87,6 +87,8 @@ struct allocating_container;
 
 template <class T>
 struct array;
+template <class T>
+struct unique_array;
 template <class T, isize N>
 struct fixed_array;
 

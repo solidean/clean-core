@@ -40,6 +40,8 @@ target_sources(clean-core
     src/clean-core/string_view.hh
     src/clean-core/utility.hh
     src/clean-core/vector.hh
+    src/clean-core/impl/allocating_container.hh
+    src/clean-core/impl/object_lifetime_util.hh
 )
 
 # Libraries should not set a global C++ standard here.
