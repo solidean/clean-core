@@ -46,6 +46,9 @@
 //   identify_function                - callable that returns its argument (identity function)
 //   constant_function<C>             - callable that always returns constant C
 //   projection_function<I>           - callable that returns the I-th argument
+//   invoke(f, args...)               - invoke callable with perfect forwarding (handles member pointers)
+//   is_invocable<F, Args...>         - check if F can be invoked with Args...
+//   is_invocable_r<R, F, Args...>    - check if F can be invoked with Args... and result converts to R
 //
 // Template metaprogramming:
 //   dont_deduce<T>                   - disable template argument deduction for T
@@ -412,7 +415,7 @@ struct identify_function
     template <class T>
     constexpr T&& operator()(T&& arg) const noexcept
     {
-        return forward<T>(arg);
+        return cc::forward<T>(arg);
     }
 };
 
@@ -444,7 +447,7 @@ struct projection_function
     template <class... Args>
     constexpr auto&& operator()(Args&&... args) const noexcept
     {
-        return forward<decltype(get_nth<I>(forward<Args>(args)...))>(get_nth<I>(forward<Args>(args)...));
+        return cc::forward<decltype(get_nth<I>(cc::forward<Args>(args)...))>(get_nth<I>(cc::forward<Args>(args)...));
     }
 
 private:
@@ -452,11 +455,182 @@ private:
     static constexpr auto&& get_nth(T&& first, Ts&&... rest) noexcept
     {
         if constexpr (Idx == 0)
-            return forward<T>(first);
+            return cc::forward<T>(first);
         else
-            return get_nth<Idx - 1>(forward<Ts>(rest)...);
+            return get_nth<Idx - 1>(cc::forward<Ts>(rest)...);
     }
 };
+
+/// Invoke a callable with perfect forwarding, supporting member pointers
+/// Handles three cases:
+///   - Normal callables: invoke(f, args...) -> f(args...)
+///   - Member function pointers: invoke(pmf, obj, args...) -> (obj.*pmf)(args...) or ((*obj).*pmf)(args...)
+///   - Member object pointers: invoke(pmd, obj) -> obj.*pmd or (*obj).*pmd
+/// The second form ((*obj).*) works with smart pointers and any dereferenceable type
+/// Note: Callables with overloaded operator() are fine, but overloaded member function/object pointers
+///       are not supported (&Foo::bar must be a unique function/member)
+/// Usage:
+///   cc::invoke(f);                        // call 0-ary callable
+///   cc::invoke(f, x, y);                  // call with args
+///   cc::invoke(&Foo::bar, obj, x);        // call member function on object
+///   cc::invoke(&Foo::bar, ptr, x);        // call member function via smart pointer
+///   cc::invoke(&Foo::member, obj);        // access member object
+// 0-ary: only normal callables
+template <class F>
+constexpr decltype(auto) invoke(F&& f)
+{
+    if constexpr (requires { cc::forward<F>(f)(); })
+    {
+        return cc::forward<F>(f)();
+    }
+    else
+    {
+        static_assert(false, "cc::invoke(f): f() is not invocable");
+    }
+}
+
+// 1+ args: member-pointer forms first; otherwise normal call
+template <class F, class Arg0, class... Args>
+constexpr decltype(auto) invoke(F&& f, Arg0&& arg0, Args&&... args)
+{
+    using F0 = std::remove_cv_t<std::remove_reference_t<F>>;
+
+    if constexpr (std::is_member_pointer_v<F0>)
+    {
+        if constexpr (std::is_member_function_pointer_v<F0>)
+        {
+            if constexpr (requires { (cc::forward<Arg0>(arg0).*f)(cc::forward<Args>(args)...); })
+            {
+                return (cc::forward<Arg0>(arg0).*f)(cc::forward<Args>(args)...);
+            }
+            else if constexpr (requires { ((*cc::forward<Arg0>(arg0)).*f)(cc::forward<Args>(args)...); })
+            {
+                return ((*cc::forward<Arg0>(arg0)).*f)(cc::forward<Args>(args)...);
+            }
+            else
+            {
+                static_assert(false, "cc::invoke(pmf, obj, ...): cannot apply .* / ->* and call");
+            }
+        }
+        else // member object pointer
+        {
+            if constexpr (sizeof...(Args) != 0)
+            {
+                static_assert(false, "cc::invoke(pmd, obj): member object access takes no extra args");
+            }
+            else if constexpr (requires { cc::forward<Arg0>(arg0).*f; })
+            {
+                return cc::forward<Arg0>(arg0).*f;
+            }
+            else if constexpr (requires { (*cc::forward<Arg0>(arg0)).*f; })
+            {
+                return (*cc::forward<Arg0>(arg0)).*f;
+            }
+            else
+            {
+                static_assert(false, "cc::invoke(pmd, obj): cannot apply .* / ->*");
+            }
+        }
+    }
+    else if constexpr (requires { cc::forward<F>(f)(cc::forward<Arg0>(arg0), cc::forward<Args>(args)...); })
+    {
+        return cc::forward<F>(f)(cc::forward<Arg0>(arg0), cc::forward<Args>(args)...);
+    }
+    else
+    {
+        static_assert(false, "cc::invoke(f, args...): not invocable (neither member-pointer nor callable)");
+    }
+}
+
+/// Check if a callable can be invoked with the given arguments
+/// Returns a compile-time boolean constant matching the behavior of cc::invoke
+/// Usage:
+///   cc::is_invocable<decltype(f)>                    // check if f is 0-ary callable
+///   cc::is_invocable<decltype(f), int, float>        // check if f(int, float) is valid
+///   cc::is_invocable<decltype(&Foo::bar), Foo, int>  // check if member function is invocable
+// Implementation details
+namespace impl
+{
+template <class F, class Arg0, class... Args>
+consteval bool is_invocable_n()
+{
+    using F0 = std::remove_cv_t<std::remove_reference_t<F>>;
+
+    if constexpr (std::is_member_pointer_v<F0>)
+    {
+        if constexpr (std::is_member_function_pointer_v<F0>)
+        {
+            return requires(F&& f, Arg0&& arg0, Args&&... args) {
+                (cc::forward<Arg0>(arg0).*cc::forward<F>(f))(cc::forward<Args>(args)...);
+            } || requires(F&& f, Arg0&& arg0, Args&&... args) {
+                ((*cc::forward<Arg0>(arg0)).*cc::forward<F>(f))(cc::forward<Args>(args)...);
+            };
+        }
+        else // member object pointer
+        {
+            if constexpr (sizeof...(Args) != 0)
+                return false;
+
+            return requires(F&& f, Arg0&& arg0) { cc::forward<Arg0>(arg0).*cc::forward<F>(f); }
+                || requires(F&& f, Arg0&& arg0) { (*cc::forward<Arg0>(arg0)).*cc::forward<F>(f); };
+        }
+    }
+    else
+    {
+        return requires(F&& f, Arg0&& arg0, Args&&... args) {
+            cc::forward<F>(f)(cc::forward<Arg0>(arg0), cc::forward<Args>(args)...);
+        };
+    }
+}
+
+template <class F, class... Args>
+consteval bool is_invocable_dispatch()
+{
+    if constexpr (sizeof...(Args) == 0)
+    {
+        return requires(F&& f) { cc::forward<F>(f)(); };
+    }
+    else
+    {
+        return is_invocable_n<F, Args...>();
+    }
+}
+} // namespace impl
+
+template <class F, class... Args>
+inline constexpr bool is_invocable = impl::is_invocable_dispatch<F, Args...>();
+
+/// Check if a callable can be invoked with the given arguments and result converts to R
+/// Returns a compile-time boolean constant
+/// Special case: is_invocable_r<void, F, Args...> accepts any return type (including void)
+/// Usage:
+///   cc::is_invocable_r<int, decltype(f)>                 // check if f() returns int (or convertible)
+///   cc::is_invocable_r<void, decltype(f), int, float>    // check if f(int, float) is valid (any return)
+///   cc::is_invocable_r<float, decltype(&Foo::bar), Foo>  // check if member function returns float
+namespace impl
+{
+template <class R, class F, class... Args>
+consteval bool is_invocable_r_impl()
+{
+    if constexpr (!is_invocable<F, Args...>)
+    {
+        return false;
+    }
+    else if constexpr (std::is_void_v<R>)
+    {
+        // std::is_invocable_r<void, ...> accepts any return type (including void)
+        return true;
+    }
+    else
+    {
+        using Ret = decltype(invoke(std::declval<F>(), std::declval<Args>()...));
+        return std::is_convertible_v<Ret, R>;
+    }
+}
+} // namespace impl
+
+template <class R, class F, class... Args>
+inline constexpr bool is_invocable_r = impl::is_invocable_r_impl<R, F, Args...>();
 
 // =========================================================================================================
 // Template metaprogramming utilities

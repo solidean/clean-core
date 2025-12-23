@@ -88,6 +88,7 @@ add_executable(clean-core-test
     tests/array-test.cc
     tests/assert-test.cc
     tests/fixed-array-test.cc
+    tests/invocable-test.cc
     tests/macros-test.cc
     tests/optional-test.cc
     tests/span-test.cc

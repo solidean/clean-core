@@ -214,6 +214,25 @@ public:
         _data.obj_end = _data.obj_start;
     }
 
+    // TODO:
+    // resize_to_defaulted(isize new_size) -- asserts default constructibility
+    // resize_to_filled(isize new_size, T const& value) -- assert copyability
+    // resize_to_uninitialized(isize new_size) -- asserts trivially copyable && trivially destructible
+    // clear_resize_to_defaulted(isize new_size) -- asserts default constructibility
+    // clear_resize_to_filled(isize new_size, T const& value) -- assert copyability
+    // (clear_ means existing elements are also overwritten)
+    // resize_down_to(isize new_size) -- asserts that new_size <= size
+    // NOTE: we always resize at the end because resize keeps the prefix stable (the first min(size, new_size) elements are the same)
+    //       also, this way we can try to resize the allocation inplace efficiently
+    // shrink_to_fit
+
+    // TODO:
+    // reserve_front(isize count)
+    // reserve_back(isize count)
+    // reserve_front_exact(isize count)
+    // reserve_back_exact(isize count)
+    // -> the _exact versions guarantee capacity_front/back >= count (same as non-exact) but without exponential growth "protection"
+
     // appends
 public:
     /// Constructs a new element at the back using existing capacity.
@@ -409,6 +428,17 @@ public:
         return value;
     }
 
+    /// Removes the last element.
+    /// Precondition: !empty().
+    /// O(1) complexity.
+    /// Fast path: destroys the element in place without moving.
+    constexpr void remove_back()
+    {
+        CC_ASSERT(_data.obj_start < _data.obj_end, "cannot remove from empty container");
+        _data.obj_end--;
+        _data.obj_end->~T();
+    }
+
     /// Removes and returns the first element by move.
     /// Precondition: !empty().
     /// O(1) complexity.
@@ -420,17 +450,6 @@ public:
         _data.obj_start->~T();
         _data.obj_start++;
         return value;
-    }
-
-    /// Removes the last element.
-    /// Precondition: !empty().
-    /// O(1) complexity.
-    /// Fast path: destroys the element in place without moving.
-    constexpr void remove_back()
-    {
-        CC_ASSERT(_data.obj_start < _data.obj_end, "cannot remove from empty container");
-        _data.obj_end--;
-        _data.obj_end->~T();
     }
 
     /// Removes the first element.
@@ -527,6 +546,22 @@ public:
         // Destroy the last element (now either moved-from or the original at idx if it was last)
         _data.obj_end->~T();
     }
+
+    // TODO:
+    // - remove_at_range(isize start, isize count) -- bounds checks
+    // - remove_from_to(isize start, isize end) -- end exclusive, bounds checks
+    // - remove_at_range_unordered(isize start, isize count) -- bounds checks
+    // - remove_from_to_unordered(isize start, isize end) -- end exclusive, bounds checks
+    // - remove_all_where(pred) -> isize count
+    // - remove_first_where(pred) -> isize index (or -1)
+    // - remove_last_where(pred) -> isize index (or -1)
+    // - remove_all_value(const& v) -> isize count
+    // - remove_first_value(const& v) -> isize index (or -1)
+    // - remove_last_value(const& v) -> isize index (or -1)
+    // - retain_all_where(pred) -> isize count
+
+    // special for SoA use cases
+    // - remove_all_where_zipped(pred, containers&...) -> isize count
 
     // ctors / allocation
 public:
