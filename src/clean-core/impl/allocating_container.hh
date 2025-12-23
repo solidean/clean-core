@@ -1,6 +1,7 @@
 #pragma once
 
 #include <clean-core/allocation.hh>
+#include <clean-core/optional.hh>
 
 #include <initializer_list>
 #include <new>
@@ -887,15 +888,172 @@ public:
         remove_at_range(start, end - start);
     }
 
-    // TODO:
-    // - remove_all_where(pred) -> isize count
-    // - remove_first_where(pred) -> cc::optional<isize> idx
-    // - remove_last_where(pred) -> cc::optional<isize> idx
-    // - remove_all_value(const& v) -> isize count
-    // - remove_first_value(const& v) -> cc::optional<isize> idx
-    // - remove_last_value(const& v) -> cc::optional<isize> idx
-    // - retain_all_where(pred) -> isize count
+    /// Removes all elements for which the predicate returns true.
+    /// Preserves the relative order of surviving elements.
+    /// Returns the number of removed elements.
+    /// Predicate is invoked as pred(element) or pred(idx, element) for each element.
+    /// Single-pass O(n) algorithm with move-assignment for surviving elements.
+    /// References and pointers to surviving elements may be invalidated.
+    template <class Pred>
+    constexpr isize remove_all_where(Pred&& pred)
+    {
+        static_assert(cc::is_invocable_r<bool, Pred, T&> || cc::is_invocable_r<bool, Pred, isize, T&>,
+                      "remove_all_where: predicate must be invocable with T& or (isize, T&) and return bool");
 
+        auto write_pos = _data.obj_start;
+        auto read_pos = _data.obj_start;
+
+        // Single pass: move survivors forward, skip elements to remove
+        while (read_pos != _data.obj_end)
+        {
+            auto const idx = isize(read_pos - _data.obj_start);
+            if (!cc::invoke_with_optional_idx(idx, pred, *read_pos))
+            {
+                // Element survives - move it to write position if needed
+                if (write_pos != read_pos)
+                    *write_pos = cc::move(*read_pos);
+                ++write_pos;
+            }
+            ++read_pos;
+        }
+
+        // Calculate how many were removed
+        auto const removed_count = _data.obj_end - write_pos;
+
+        // Resize down, destroying trailing elements
+        resize_down_to(write_pos - _data.obj_start);
+
+        return removed_count;
+    }
+
+    /// Removes the first element for which the predicate returns true.
+    /// Returns the index of the removed element, or cc::nullopt if no element matched.
+    /// Predicate is invoked as pred(element) or pred(idx, element) for each element.
+    /// Stops calling the predicate once a match is found.
+    /// O(n) complexity. References and pointers to elements after the removed element are invalidated.
+    template <class Pred>
+    constexpr cc::optional<isize> remove_first_where(Pred&& pred)
+    {
+        static_assert(cc::is_invocable_r<bool, Pred, T&> || cc::is_invocable_r<bool, Pred, isize, T&>,
+                      "remove_first_where: predicate must be invocable with T& or (isize, T&) and return bool");
+
+        auto p = _data.obj_start;
+        while (p != _data.obj_end)
+        {
+            auto const idx = isize(p - _data.obj_start);
+            if (cc::invoke_with_optional_idx(idx, pred, *p))
+            {
+                // Found the element to remove - compact everything after it backward and remove the trailing element
+                impl::compact_move_objects_backward(p, p + 1, _data.obj_end);
+                remove_back();
+                return idx;
+            }
+            ++p;
+        }
+
+        // No element matched
+        return cc::nullopt;
+    }
+
+    /// Removes the last element for which the predicate returns true.
+    /// Returns the index of the removed element, or cc::nullopt if no element matched.
+    /// Predicate is invoked as pred(element) or pred(idx, element) for each element.
+    /// Stops calling the predicate once a match is found (scanning backward).
+    /// O(n) complexity. References and pointers to elements after the removed element are invalidated.
+    template <class Pred>
+    constexpr cc::optional<isize> remove_last_where(Pred&& pred)
+    {
+        static_assert(cc::is_invocable_r<bool, Pred, T&> || cc::is_invocable_r<bool, Pred, isize, T&>,
+                      "remove_last_where: predicate must be invocable with T& or (isize, T&) and return bool");
+
+        auto p = _data.obj_end;
+        while (p != _data.obj_start)
+        {
+            --p;
+            auto const idx = isize(p - _data.obj_start);
+            if (cc::invoke_with_optional_idx(idx, pred, *p))
+            {
+                // Found the element to remove - compact everything after it backward and remove the trailing element
+                impl::compact_move_objects_backward(p, p + 1, _data.obj_end);
+                remove_back();
+                return idx;
+            }
+        }
+
+        // No element matched
+        return cc::nullopt;
+    }
+
+    /// Removes all elements that compare equal to the given value.
+    /// Preserves the relative order of surviving elements.
+    /// Returns the number of removed elements.
+    /// Single-pass O(n) algorithm with move-assignment for surviving elements.
+    /// References and pointers to surviving elements may be invalidated.
+    constexpr isize remove_all_value(T const& value)
+    {
+        static_assert(requires { bool(value == value); }, "remove_all_value: T must support operator==");
+        return remove_all_where([&value](T const& elem) { return elem == value; });
+    }
+
+    /// Removes the first element that compares equal to the given value.
+    /// Returns the index of the removed element, or cc::nullopt if no element matched.
+    /// Stops searching once a match is found.
+    /// O(n) complexity. References and pointers to elements after the removed element are invalidated.
+    constexpr cc::optional<isize> remove_first_value(T const& value)
+    {
+        static_assert(requires { bool(value == value); }, "remove_first_value: T must support operator==");
+        return remove_first_where([&value](T const& elem) { return elem == value; });
+    }
+
+    /// Removes the last element that compares equal to the given value.
+    /// Returns the index of the removed element, or cc::nullopt if no element matched.
+    /// Stops searching once a match is found (scanning backward).
+    /// O(n) complexity. References and pointers to elements after the removed element are invalidated.
+    constexpr cc::optional<isize> remove_last_value(T const& value)
+    {
+        static_assert(requires { bool(value == value); }, "remove_last_value: T must support operator==");
+        return remove_last_where([&value](T const& elem) { return elem == value; });
+    }
+
+    /// Retains only elements for which the predicate returns true (removes elements where predicate returns false).
+    /// Preserves the relative order of surviving elements.
+    /// Returns the number of removed elements.
+    /// Predicate is invoked as pred(element) or pred(idx, element) for each element.
+    /// Single-pass O(n) algorithm with move-assignment for surviving elements.
+    /// References and pointers to surviving elements may be invalidated.
+    template <class Pred>
+    constexpr isize retain_all_where(Pred&& pred)
+    {
+        static_assert(cc::is_invocable_r<bool, Pred, T&> || cc::is_invocable_r<bool, Pred, isize, T&>,
+                      "retain_all_where: predicate must be invocable with T& or (isize, T&) and return bool");
+
+        auto write_pos = _data.obj_start;
+        auto read_pos = _data.obj_start;
+
+        // Single pass: move survivors forward, skip elements to remove
+        while (read_pos != _data.obj_end)
+        {
+            auto const idx = isize(read_pos - _data.obj_start);
+            if (cc::invoke_with_optional_idx(idx, pred, *read_pos))
+            {
+                // Element survives - move it to write position if needed
+                if (write_pos != read_pos)
+                    *write_pos = cc::move(*read_pos);
+                ++write_pos;
+            }
+            ++read_pos;
+        }
+
+        // Calculate how many were removed
+        auto const removed_count = _data.obj_end - write_pos;
+
+        // Resize down, destroying trailing elements
+        resize_down_to(write_pos - _data.obj_start);
+
+        return removed_count;
+    }
+
+    // TODO:
     // special for SoA use cases
     // - remove_all_where_zipped(pred, containers&...) -> isize count
 

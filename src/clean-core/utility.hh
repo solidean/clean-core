@@ -41,14 +41,15 @@
 //   is_aligned(value, alignment)     - check if aligned at boundary (power of 2)
 //
 // Callable utilities:
-//   overloaded(f1, f2, ...)          - combine multiple callables into single overload set
-//   void_function                    - callable that returns void for any arguments
-//   identify_function                - callable that returns its argument (identity function)
-//   constant_function<C>             - callable that always returns constant C
-//   projection_function<I>           - callable that returns the I-th argument
-//   invoke(f, args...)               - invoke callable with perfect forwarding (handles member pointers)
-//   is_invocable<F, Args...>         - check if F can be invoked with Args...
-//   is_invocable_r<R, F, Args...>    - check if F can be invoked with Args... and result converts to R
+//   overloaded(f1, f2, ...)                 - combine multiple callables into single overload set
+//   void_function                           - callable that returns void for any arguments
+//   identify_function                       - callable that returns its argument (identity function)
+//   constant_function<C>                    - callable that always returns constant C
+//   projection_function<I>                  - callable that returns the I-th argument
+//   invoke(f, args...)                      - invoke callable with perfect forwarding (handles member pointers)
+//   invoke_with_optional_idx(idx, f, args...) - invoke f, preferring without idx but accepts idx as first arg
+//   is_invocable<F, Args...>                - check if F can be invoked with Args...
+//   is_invocable_r<R, F, Args...>           - check if F can be invoked with Args... and result converts to R
 //
 // Template metaprogramming:
 //   dont_deduce<T>                   - disable template argument deduction for T
@@ -631,6 +632,34 @@ consteval bool is_invocable_r_impl()
 
 template <class R, class F, class... Args>
 inline constexpr bool is_invocable_r = impl::is_invocable_r_impl<R, F, Args...>();
+
+/// Invoke a callable with an optional index argument
+/// Tries to invoke F with Args... first; if that fails, tries to invoke F with (Idx, Args...)
+/// Prefers the non-indexed form if both work
+/// Usage:
+///   auto f1 = [](int x) { return x * 2; };
+///   auto f2 = [](int idx, int x) { return idx + x; };
+///   cc::invoke_with_optional_idx(5, f1, 10);  // calls f1(10), ignores idx
+///   cc::invoke_with_optional_idx(5, f2, 10);  // calls f2(5, 10), uses idx
+/// Preconditions:
+///   F must be invocable with either Args... or (Idx, Args...)
+template <class Idx, class F, class... Args>
+constexpr decltype(auto) invoke_with_optional_idx(Idx&& idx, F&& f, Args&&... args)
+{
+    if constexpr (cc::is_invocable<F, Args...>)
+    {
+        return cc::invoke(cc::forward<F>(f), cc::forward<Args>(args)...);
+    }
+    else if constexpr (cc::is_invocable<F, Idx, Args...>)
+    {
+        return cc::invoke(cc::forward<F>(f), cc::forward<Idx>(idx), cc::forward<Args>(args)...);
+    }
+    else
+    {
+        static_assert(false, "cc::invoke_with_optional_idx(idx, f, args...): f is not invocable with args... nor with "
+                             "(idx, args...)");
+    }
+}
 
 // =========================================================================================================
 // Template metaprogramming utilities
