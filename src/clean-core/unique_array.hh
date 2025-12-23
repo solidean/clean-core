@@ -10,13 +10,8 @@
 // - equality, order, hashing
 
 
-/// Dynamically allocated array of T elements with value semantics.
-/// Similar to std::vector but without growth operations (push, pop, resize).
-/// Owns the underlying memory through cc::allocation<T>.
-/// Compatible with the allocation-share protocol for efficient memory sharing.
-/// Supports move semantics and allocator-aware construction.
 template <class T>
-struct cc::array : private cc::allocating_container<T, array<T>>
+struct cc::unique_array : private cc::allocating_container<T, array<T>>
 {
     using base = cc::allocating_container<T, array<T>>;
 
@@ -50,14 +45,14 @@ public:
 public:
     using base::extract_allocation; // extract underlying allocation
 
-    // array has deep-copy value semantics
+    // unique_array has move-only semantics
     using base::allocating_container; // inherit constructors (including initializer_list)
-    array() = default;
-    ~array() = default;
-    array(array&&) = default;
-    array& operator=(array&&) = default;
-    array(array const&) = default;
-    array& operator=(array const&) = default;
+    unique_array() = default;
+    ~unique_array() = default;
+    unique_array(unique_array&&) = default;
+    unique_array& operator=(unique_array&&) = default;
+    unique_array(unique_array const&) = delete;
+    unique_array& operator=(unique_array const&) = delete;
 
     friend base;
 };

@@ -24,6 +24,8 @@ target_sources(clean-core
     BASE_DIRS "${CMAKE_CURRENT_SOURCE_DIR}/src"
     FILES
     src/clean-core/array.hh
+    src/clean-core/unique_array.hh
+    src/clean-core/fixed_array.hh
     src/clean-core/allocation.hh
     src/clean-core/assert.hh
     src/clean-core/assertf.hh
@@ -40,6 +42,8 @@ target_sources(clean-core
     src/clean-core/string_view.hh
     src/clean-core/utility.hh
     src/clean-core/vector.hh
+    src/clean-core/unique_vector.hh
+    src/clean-core/fixed_vector.hh
     src/clean-core/impl/allocating_container.hh
     src/clean-core/impl/object_lifetime_util.hh
 )

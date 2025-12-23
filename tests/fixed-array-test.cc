@@ -1,4 +1,4 @@
-#include <clean-core/array.hh>
+#include <clean-core/fixed_array.hh>
 #include <clean-core/span.hh>
 #include <clean-core/utility.hh>
 

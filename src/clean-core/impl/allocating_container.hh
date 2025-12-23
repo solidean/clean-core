@@ -2,6 +2,7 @@
 
 #include <clean-core/allocation.hh>
 
+#include <initializer_list>
 #include <new>
 
 
@@ -592,6 +593,12 @@ public:
     }
 
     allocating_container() = default;
+    allocating_container(std::initializer_list<T> init, cc::memory_resource const* resource = nullptr)
+    {
+        auto const byte_size = cc::align_up(init.size() * sizeof(T), alloc_alignment);
+        _data = cc::allocation<T>::create_empty_bytes(byte_size, byte_size, alloc_alignment, resource);
+        cc::impl::copy_create_objects_to(_data.obj_end, init.begin(), init.end());
+    }
     ~allocating_container() = default;
 
     // move semantics are already fine via cc::allocation

@@ -14,13 +14,8 @@
 // - emplace/insert at arbitrary positions
 
 
-/// Dynamically allocated vector of T elements with value semantics.
-/// Similar to std::vector with support for growth operations (push, pop, resize).
-/// Owns the underlying memory through cc::allocation<T>.
-/// Compatible with the allocation-share protocol for efficient memory sharing.
-/// Supports move semantics and allocator-aware construction.
 template <class T>
-struct cc::vector : private cc::allocating_container<T, vector<T>>
+struct cc::unique_vector : private cc::allocating_container<T, vector<T>>
 {
     using base = cc::allocating_container<T, vector<T>>;
 
@@ -94,14 +89,14 @@ public:
     // TODO: erase(Iterator first, Iterator last) - remove range of elements
     // TODO: emplace(Iterator pos, Args&&... args) - construct element at position
 
-    // vector has deep-copy value semantics
+    // unique_vector has move-only semantics
     using base::allocating_container; // inherit constructors (including initializer_list)
-    vector() = default;
-    ~vector() = default;
-    vector(vector&&) = default;
-    vector& operator=(vector&&) = default;
-    vector(vector const&) = default;
-    vector& operator=(vector const&) = default;
+    unique_vector() = default;
+    ~unique_vector() = default;
+    unique_vector(unique_vector&&) = default;
+    unique_vector& operator=(unique_vector&&) = default;
+    unique_vector(unique_vector const&) = delete;
+    unique_vector& operator=(unique_vector const&) = delete;
 
     friend base;
 };
