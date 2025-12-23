@@ -220,6 +220,8 @@ private:
     // moves existing objects to it, and replaces _data with the new allocation.
     void move_to_new_allocation(isize min_bytes, isize max_bytes, isize obj_offset)
     {
+        CC_ASSERT((obj_offset + size()) * sizeof(T) <= min_bytes, "allocation too small for obj_offset + size");
+
         auto new_allocation = cc::allocation<T>::create_empty_bytes(min_bytes, max_bytes, alloc_alignment,
                                                                     _data.custom_resource, obj_offset);
 
@@ -239,6 +241,19 @@ public:
         _data.obj_end = _data.obj_start;
     }
 
+    /// Shrinks the container to the specified size by destroying trailing elements.
+    /// Precondition: new_size <= size().
+    /// Does not reallocate or change capacity.
+    /// O(size() - new_size) complexity.
+    constexpr void resize_down_to(isize new_size)
+    {
+        CC_ASSERT(new_size <= size(), "resize_down_to: new_size must be <= size()");
+
+        auto const new_obj_end = _data.obj_start + new_size;
+        impl::destroy_objects_in_reverse(new_obj_end, _data.obj_end);
+        _data.obj_end = new_obj_end;
+    }
+
     // TODO:
     // resize_to_defaulted(isize new_size) -- asserts default constructibility
     // resize_to_filled(isize new_size, T const& value) -- assert copyability
@@ -246,10 +261,8 @@ public:
     // clear_resize_to_defaulted(isize new_size) -- asserts default constructibility
     // clear_resize_to_filled(isize new_size, T const& value) -- assert copyability
     // (clear_ means existing elements are also overwritten)
-    // resize_down_to(isize new_size) -- asserts that new_size <= size
     // NOTE: we always resize at the end because resize keeps the prefix stable (the first min(size, new_size) elements are the same)
     //       also, this way we can try to resize the allocation inplace efficiently
-    // shrink_to_fit -- must be idempotent
 
     /// Ensures at least `count` elements can be inserted at the back without reallocation.
     /// Uses exponential growth strategy to amortize future reallocations.
@@ -337,6 +350,23 @@ public:
         auto const new_size = cc::align_up(needed_bytes, alloc_alignment);
 
         move_to_new_allocation(new_size, new_size, count);
+    }
+
+    /// Reduces allocation size to fit the current number of elements.
+    /// Reallocates only if the tight allocation size (aligned up to alloc_alignment) differs from current size.
+    /// Idempotent: calling multiple times has the same effect as calling once.
+    /// If the container is empty or already tight, this is a no-op.
+    void shrink_to_fit()
+    {
+        // Compute tight allocation size (align_up of size * sizeof(T) to alloc_alignment)
+        auto const tight_size = cc::align_up(size() * sizeof(T), alloc_alignment);
+
+        // Only reallocate if current allocation size differs from tight size
+        if (_data.alloc_size_bytes() == tight_size)
+            return;
+
+        // Move to new tight allocation with no front capacity (obj_offset = 0)
+        move_to_new_allocation(tight_size, tight_size, 0);
     }
 
     // appends
