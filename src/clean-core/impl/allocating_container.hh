@@ -822,17 +822,78 @@ public:
         _data.obj_end->~T();
     }
 
+    /// Removes a range of elements by moving trailing elements into the gap.
+    /// Does not preserve relative order of elements (hence _unordered suffix).
+    /// Precondition: 0 <= start && start + count <= size().
+    /// O(count) complexity.
+    /// References and pointers to elements before start remain valid.
+    /// More efficient than ordered removal when element order doesn't matter.
+    constexpr void remove_at_range_unordered(isize start, isize count)
+    {
+        CC_ASSERT(0 <= start && start + count <= size(), "range out of bounds");
+
+        if (count == 0)
+            return;
+
+        auto const gap_start = _data.obj_start + start;
+
+        // Move the last 'count' elements into the gap
+        impl::compact_move_objects_backward(gap_start, _data.obj_end - count, _data.obj_end);
+
+        // Resize down, destroying the now-unneeded trailing elements
+        resize_down_to(size() - count);
+    }
+
+    /// Removes a range of elements [start, end) by moving trailing elements into the gap.
+    /// Does not preserve relative order of elements (hence _unordered suffix).
+    /// Precondition: 0 <= start && start <= end && end <= size().
+    /// O(end - start) complexity.
+    /// References and pointers to elements before start remain valid.
+    /// More efficient than ordered removal when element order doesn't matter.
+    constexpr void remove_from_to_unordered(isize start, isize end)
+    {
+        CC_ASSERT(0 <= start && start <= end && end <= size(), "range out of bounds");
+        remove_at_range_unordered(start, end - start);
+    }
+
+    /// Removes a range of elements while preserving relative order.
+    /// Precondition: 0 <= start && start + count <= size().
+    /// O(n) complexity due to element compaction.
+    /// References and pointers to elements before start remain valid.
+    constexpr void remove_at_range(isize start, isize count)
+    {
+        CC_ASSERT(0 <= start && start + count <= size(), "range out of bounds");
+
+        if (count == 0)
+            return;
+
+        auto const gap_start = _data.obj_start + start;
+        auto const gap_end = gap_start + count;
+
+        // Move all elements after the gap backward to close it
+        impl::compact_move_objects_backward(gap_start, gap_end, _data.obj_end);
+
+        // Resize down, destroying the now-unneeded trailing elements
+        resize_down_to(size() - count);
+    }
+
+    /// Removes a range of elements [start, end) while preserving relative order.
+    /// Precondition: 0 <= start && start <= end && end <= size().
+    /// O(n) complexity due to element compaction.
+    /// References and pointers to elements before start remain valid.
+    constexpr void remove_from_to(isize start, isize end)
+    {
+        CC_ASSERT(0 <= start && start <= end && end <= size(), "range out of bounds");
+        remove_at_range(start, end - start);
+    }
+
     // TODO:
-    // - remove_at_range(isize start, isize count) -- bounds checks
-    // - remove_from_to(isize start, isize end) -- end exclusive, bounds checks
-    // - remove_at_range_unordered(isize start, isize count) -- bounds checks
-    // - remove_from_to_unordered(isize start, isize end) -- end exclusive, bounds checks
     // - remove_all_where(pred) -> isize count
-    // - remove_first_where(pred) -> isize index (or -1)
-    // - remove_last_where(pred) -> isize index (or -1)
+    // - remove_first_where(pred) -> cc::optional<isize> idx
+    // - remove_last_where(pred) -> cc::optional<isize> idx
     // - remove_all_value(const& v) -> isize count
-    // - remove_first_value(const& v) -> isize index (or -1)
-    // - remove_last_value(const& v) -> isize index (or -1)
+    // - remove_first_value(const& v) -> cc::optional<isize> idx
+    // - remove_last_value(const& v) -> cc::optional<isize> idx
     // - retain_all_where(pred) -> isize count
 
     // special for SoA use cases
