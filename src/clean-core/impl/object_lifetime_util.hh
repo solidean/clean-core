@@ -193,6 +193,57 @@ constexpr void move_create_objects_to_reverse(T*& dest_start, T* src_start, T* s
     }
 }
 
+/// Compacts objects by moving [src_start, src_end) to [dest_start, ...) within the same allocation.
+/// Designed for removal operations where dest_start < src_start (moving elements backward to close a gap).
+/// PRECONDITIONS:
+///   - dest_start < src_start (target is before source, eliminating possibility of forward overlap issues)
+///   - Both ranges are within the same allocation
+///   - All objects in [dest_start, dest_start + (src_end - src_start)) are alive (will be overwritten)
+///   - All objects in [src_start, src_end) are alive (will be moved-from)
+/// POSTCONDITIONS:
+///   - Objects in [dest_start, dest_start + (src_end - src_start)) contain moved values
+///   - Objects in [src_start, src_end) are in moved-from state (still alive, must be destroyed separately)
+/// Uses forward iteration which is safe since dest_start < src_start.
+/// Trivially copyable types are optimized to use memmove (which handles all overlaps correctly).
+/// Empty ranges (src_start == src_end) are valid and result in a no-op.
+///
+/// Usage pattern (closing a gap after removal):
+///   // Remove element at idx from [obj_start, obj_end)
+///   compact_move_objects_backward(obj_start + idx, obj_start + idx + 1, obj_end);
+///   // obj_start[idx] through obj_end[-2] now contain the compacted elements
+///   // obj_end[-1] is in moved-from state, destroy it
+///   --obj_end;
+///   obj_end->~T();
+template <class T>
+constexpr void compact_move_objects_backward(T* dest_start, T* src_start, T* src_end)
+{
+    static_assert(sizeof(T) > 0, "T must be a complete type (did you forget to include a header?)");
+    static_assert(std::is_move_assignable_v<T>, "T must be move assignable");
+
+    CC_ASSERT(dest_start <= src_start, "compact_move_objects_backward requires dest_start < src_start");
+
+    if constexpr (std::is_trivially_copyable_v<T>)
+    {
+        // memmove handles all overlap cases correctly (forward, backward, or identical ranges)
+        auto const size = src_end - src_start;
+        if (size > 0)
+        {
+            std::memmove(dest_start, src_start, size * sizeof(T));
+        }
+    }
+    else
+    {
+        // Forward iteration is safe: we're moving backward (dest < src)
+        // Each assignment completes before we read the next source element
+        while (src_start != src_end)
+        {
+            *dest_start = cc::move(*src_start);
+            ++dest_start;
+            ++src_start;
+        }
+    }
+}
+
 /// Copy-assigns objects from [src_start, src_end) using copy assignment operator.
 /// dest_end is incremented for each successfully assigned object.
 /// IMPORTANT: Assumes the objects at [*dest_end, *dest_end + (src_end - src_start)) are already constructed (alive).

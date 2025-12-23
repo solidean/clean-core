@@ -213,6 +213,8 @@ public:
         _data.obj_end = _data.obj_start;
     }
 
+    // appends
+public:
     /// Constructs a new element at the back using existing capacity.
     /// Requires `has_capacity_back_for(1)` to be true; caller must ensure capacity in advance.
     /// No allocation occurs; pointers, references, and iterators remain valid (stable operation).
@@ -390,6 +392,140 @@ public:
     /// Appends an element to the back via move.
     /// See emplace_back for guarantees and complexity.
     constexpr T& push_back(T&& value) { return emplace_back(cc::move(value)); }
+
+    // removals
+public:
+    /// Removes and returns the last element by move.
+    /// Precondition: !empty().
+    /// O(1) complexity.
+    /// NOTE: Prefer remove_back() if you don't need the return value (avoids an extra move).
+    [[nodiscard("use remove_back() if you don't need the return value")]] constexpr T pop_back()
+    {
+        CC_ASSERT(_data.obj_start < _data.obj_end, "cannot pop from empty container");
+        auto value = cc::move(*(_data.obj_end - 1));
+        (_data.obj_end - 1)->~T();
+        _data.obj_end--;
+        return value;
+    }
+
+    /// Removes and returns the first element by move.
+    /// Precondition: !empty().
+    /// O(1) complexity.
+    /// NOTE: Prefer remove_front() if you don't need the return value (avoids an extra move).
+    [[nodiscard("use remove_front() if you don't need the return value")]] constexpr T pop_front()
+    {
+        CC_ASSERT(_data.obj_start < _data.obj_end, "cannot pop from empty container");
+        auto value = cc::move(*_data.obj_start);
+        _data.obj_start->~T();
+        _data.obj_start++;
+        return value;
+    }
+
+    /// Removes the last element.
+    /// Precondition: !empty().
+    /// O(1) complexity.
+    /// Fast path: destroys the element in place without moving.
+    constexpr void remove_back()
+    {
+        CC_ASSERT(_data.obj_start < _data.obj_end, "cannot remove from empty container");
+        _data.obj_end--;
+        _data.obj_end->~T();
+    }
+
+    /// Removes the first element.
+    /// Precondition: !empty().
+    /// O(1) complexity.
+    /// Fast path: destroys the element in place without moving.
+    constexpr void remove_front()
+    {
+        CC_ASSERT(_data.obj_start < _data.obj_end, "cannot remove from empty container");
+        _data.obj_start->~T();
+        _data.obj_start++;
+    }
+
+    /// Removes and returns the element at the given index by move.
+    /// Precondition: 0 <= idx < size().
+    /// O(n) complexity due to element compaction.
+    /// NOTE: Prefer remove_at() if you don't need the return value (avoids an extra move).
+    [[nodiscard("use remove_at() if you don't need the return value")]] constexpr T pop_at(isize idx)
+    {
+        auto const p_obj = _data.obj_start + idx;
+        CC_ASSERT(_data.obj_start <= p_obj && p_obj < _data.obj_end, "index out of bounds");
+
+        // Move out the value before compacting
+        auto value = cc::move(*p_obj);
+
+        // Compact remaining elements backward (move-assigns into p_obj, which is now moved-from but alive)
+        impl::compact_move_objects_backward(p_obj, p_obj + 1, _data.obj_end);
+
+        // The last element is now in moved-from state; destroy it and shrink
+        _data.obj_end--;
+        _data.obj_end->~T();
+
+        return value;
+    }
+
+    /// Removes the element at the given index.
+    /// Precondition: 0 <= idx < size().
+    /// O(n) complexity due to element compaction.
+    /// Fast path: compacts elements without an extra move for the return value.
+    constexpr void remove_at(isize idx)
+    {
+        auto const p_obj = _data.obj_start + idx;
+        CC_ASSERT(_data.obj_start <= p_obj && p_obj < _data.obj_end, "index out of bounds");
+
+        // Compact remaining elements backward (move-assigns over p_obj)
+        impl::compact_move_objects_backward(p_obj, p_obj + 1, _data.obj_end);
+
+        // The last element is now in moved-from state; destroy it and shrink
+        _data.obj_end--;
+        _data.obj_end->~T();
+    }
+
+    /// Removes and returns the element at the given index by swapping with the last element.
+    /// Does not preserve relative order of elements (hence _unordered suffix).
+    /// Precondition: 0 <= idx < size().
+    /// O(1) complexity. All references remain valid except for the last element.
+    /// Preferred over pop_at() when element order doesn't matter.
+    /// NOTE: Prefer remove_at_unordered() if you don't need the return value (avoids an extra move).
+    [[nodiscard("use remove_at_unordered() if you don't need the return value")]] constexpr T pop_at_unordered(isize idx)
+    {
+        auto const p_obj = _data.obj_start + idx;
+        CC_ASSERT(_data.obj_start <= p_obj && p_obj < _data.obj_end, "index out of bounds");
+
+        // Move out the value at idx
+        auto value = cc::move(*p_obj);
+
+        // Move the last element into the gap (unless we're removing the last element)
+        _data.obj_end--;
+        if (p_obj != _data.obj_end)
+            *p_obj = cc::move(*_data.obj_end);
+
+        // Destroy the last element (now either moved-from or the original at idx if it was last)
+        _data.obj_end->~T();
+
+        return value;
+    }
+
+    /// Removes the element at the given index by swapping with the last element.
+    /// Does not preserve relative order of elements (hence _unordered suffix).
+    /// Precondition: 0 <= idx < size().
+    /// O(1) complexity. All references remain valid except for the last element.
+    /// Preferred over remove_at() when element order doesn't matter.
+    /// Fast path: avoids the extra move required by pop_at_unordered().
+    constexpr void remove_at_unordered(isize idx)
+    {
+        auto const p_obj = _data.obj_start + idx;
+        CC_ASSERT(_data.obj_start <= p_obj && p_obj < _data.obj_end, "index out of bounds");
+
+        // Move the last element into the gap (unless we're removing the last element)
+        _data.obj_end--;
+        if (p_obj != _data.obj_end)
+            *p_obj = cc::move(*_data.obj_end);
+
+        // Destroy the last element (now either moved-from or the original at idx if it was last)
+        _data.obj_end->~T();
+    }
 
     // ctors / allocation
 public:
