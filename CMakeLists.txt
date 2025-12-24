@@ -30,16 +30,29 @@ target_sources(clean-core
     src/clean-core/assert.hh
     src/clean-core/assertf.hh
     src/clean-core/assert-handler.hh
+    src/clean-core/bitset.hh
+    src/clean-core/disjoint_set.hh
+    src/clean-core/fixed_bitset.hh
+    src/clean-core/flags.hh
+    src/clean-core/function_ref.hh
     src/clean-core/fwd.hh
     src/clean-core/macros.hh
+    src/clean-core/map.hh
+    src/clean-core/mutex.hh
     src/clean-core/optional.hh
+    src/clean-core/result.hh
+    src/clean-core/ringbuffer.hh
+    src/clean-core/set.hh
     src/clean-core/source_location.hh
     src/clean-core/span.hh
     src/clean-core/stacktrace.hh
+    src/clean-core/strided_span.hh
     src/clean-core/to_string.hh
     src/clean-core/to_debug_string.hh
     src/clean-core/string.hh
     src/clean-core/string_view.hh
+    src/clean-core/tuple.hh
+    src/clean-core/unique_function.hh
     src/clean-core/utility.hh
     src/clean-core/vector.hh
     src/clean-core/unique_vector.hh

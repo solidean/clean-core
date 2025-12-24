@@ -73,6 +73,8 @@ template <class T>
 struct span;
 template <class T, isize N>
 struct fixed_span;
+template <class T>
+struct strided_span;
 
 //
 // Container
@@ -103,5 +105,53 @@ struct fixed_vector;
 // struct devector;
 // template <class T, isize N>
 // struct fixed_devector;
+
+template <class K, class V>
+struct map;
+template <class T>
+struct set;
+
+template <class T>
+struct ringbuffer;
+
+template <class... Ts>
+struct tuple;
+
+template <class IdxT>
+struct disjoint_set;
+
+struct bitset;
+template <isize N>
+struct fixed_bitset;
+
+//
+// Functions
+//
+
+template <class T>
+struct function_ref;
+template <class T>
+struct unique_function;
+
+//
+// Error Handling
+//
+
+template <class T, class E>
+struct result;
+
+//
+// Concurrency
+//
+
+template <class T>
+struct mutex;
+
+//
+// Utilities
+//
+
+template <class EnumT, isize Bits = 8 * sizeof(EnumT)>
+struct flags;
 
 } // namespace cc
