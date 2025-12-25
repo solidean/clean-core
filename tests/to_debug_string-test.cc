@@ -300,7 +300,7 @@ TEST("to_debug_string - opaque struct produces hex dump")
 
     // Should contain underscores as alignment separators (alignof(OpaqueType) likely 4)
     // Format depends on endianness and alignment, but structure is consistent
-    CHECK(result.find_first_of("0123456789ABCDEF") != cc::string::npos);
+    CHECK(result.contains("0123456789ABCDEF"));
 }
 
 TEST("to_debug_string - memory dump has alignment separators")

@@ -68,7 +68,7 @@ struct allocation;
 // Strings
 //
 
-
+struct string;
 struct string_view;
 
 

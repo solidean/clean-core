@@ -271,8 +271,8 @@ private:
         auto const obj_size = size();
 
         // exponential growth strategy, at least sizeof(T) more
-        auto const new_size_request_min
-            = allocating_container::alloc_grow_size_for((new_capacity_front + obj_size + count) * sizeof(T));
+        auto const new_size_request_min = allocating_container::alloc_grow_size_for(
+            (new_capacity_front + obj_size) * sizeof(T), (new_capacity_front + obj_size + count) * sizeof(T));
         auto const new_size_request_max = new_size_request_min + cc::min(new_size_request_min, alloc_max_slack);
 
         // try realloc first
@@ -503,7 +503,8 @@ public:
         auto const new_capacity_front = container_t::uses_capacity_front ? capacity_front() : 0;
         auto const obj_size = size();
 
-        auto const new_size_min = alloc_grow_size_for((new_capacity_front + obj_size + count) * sizeof(T));
+        auto const new_size_min = alloc_grow_size_for((new_capacity_front + obj_size) * sizeof(T),
+                                                      (new_capacity_front + obj_size + count) * sizeof(T));
         auto const new_size_max = new_size_min + cc::min(new_size_min, alloc_max_slack);
 
         move_to_new_allocation(new_size_min, new_size_max, new_capacity_front);
@@ -1171,6 +1172,6 @@ public:
     /// Complexity: O(1).
     cc::allocation<T> extract_allocation() { return cc::move(_data); }
 
-private:
-    cc::allocation<T> _data;
+public:
+    cc::allocation<T> _data; // the allocation backing this container, explicit modification is fine for power users
 };

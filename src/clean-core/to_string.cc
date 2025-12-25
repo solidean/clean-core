@@ -19,7 +19,7 @@ cc::string cc::to_string(byte b)
 
 cc::string cc::to_string(char c)
 {
-    return {1, c};
+    return cc::string(c);
 }
 
 cc::string cc::to_string(signed char i)

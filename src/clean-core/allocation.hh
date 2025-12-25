@@ -4,6 +4,39 @@
 #include <clean-core/impl/object_lifetime_util.hh>
 #include <clean-core/utility.hh>
 
+// cc::allocation<T> is the owning “storage + liveness” handle underlying all contiguous heap containers.
+//
+// It models two things explicitly:
+// 1) which bytes are owned (the allocation from a cc::memory_resource),
+// 2) which objects inside those bytes are currently alive (the live window).
+//
+// Containers such as cc::array<T>, cc::vector<T>, and cc::devector<T> differ mainly in *policy*
+// (how obj_start / obj_end move and when growth happens). The sharp, failure-prone mechanics—
+// allocation ownership, resizing, alignment, and object lifetime—are centralized here.
+//
+// Memory is obtained from a polymorphic cc::memory_resource (POD, function-pointer based, static-init safe).
+// The resource pointer is stored *in the allocation*, not as a template argument. A null resource
+// means “use cc::default_memory_resource”. This avoids allocator-typed container variants, ABI bloat,
+// and allocator-propagation complexity endemic to std-style allocator templates.
+//
+// Usage is simple by default: do nothing and the global default resource is used.
+// Custom allocators are immediately supported: seed an empty allocation with a non-null resource,
+// adopt an allocation from elsewhere, or reallocate across resources explicitly.
+//
+// Core invariants:
+// - [alloc_start, alloc_end) is the owned byte range (exclusive end).
+// - [obj_start, obj_end) is the live object range (exclusive end), always within the allocation.
+// - obj_start and obj_end are always aligned to alignof(T), even when empty.
+// - custom_resource == nullptr implies use of cc::default_memory_resource.
+//
+// Member layout (storage + metadata):
+// - T* obj_start                         — pointer to the first live object
+// - T* obj_end                           — one past the last live object
+// - cc::byte* alloc_start                — base pointer returned by the memory resource
+// - cc::byte* alloc_end                  — one past the last allocated byte
+// - isize alignment                      — alignment used for allocate/deallocate of the byte block
+// - cc::memory_resource const* custom_resource — owning resource, or nullptr for the global default
+
 namespace cc
 {
 /// Default memory resource used when allocation::custom_resource == nullptr.
@@ -74,6 +107,8 @@ struct cc::memory_resource
     ///
     /// Noexcept in spirit: only programmer bugs (e.g., mismatched old_bytes) may throw or terminate.
     /// Allocator exhaustion itself must not throw; containers may leak memory if this throws.
+    ///
+    /// Future: allow letting this be "nullptr" to signal "we don't support resize"
     cc::function_ptr<isize(cc::byte* p, isize old_bytes, isize min_bytes, isize max_bytes, isize alignment, void* userdata)>
         try_resize_bytes_in_place = nullptr;
 
