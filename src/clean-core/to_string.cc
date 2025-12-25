@@ -94,5 +94,5 @@ cc::string cc::to_string(string s)
 
 cc::string cc::to_string(string_view s)
 {
-    return cc::string(s);
+    return cc::string(s.data(), s.size());
 }

@@ -19,6 +19,14 @@ These guidelines prioritize correctness, performance, maintainability, and reada
 
 ---
 
+## Repository Structure
+
+- **`docs/`** — Documentation (prefer Markdown)
+- **`src/clean-core/`** — Library implementation (`.hh` and `.cc` files colocated)
+- **`tests/`** — Test code using nexus (separate build target)
+
+---
+
 ## Naming Conventions
 
 | Element                                       | Convention    | Example                            |
@@ -40,7 +48,7 @@ These guidelines prioritize correctness, performance, maintainability, and reada
 
 ### General Principles
 
-- **clang-format is mandatory.** Use trailing `//` comments to control line breaking when needed.
+- **clang-format is mandatory** (currently version 21.1.7). Source files must not change under clang-format execution. Use trailing `//` comments to steer formatting locally when necessary. Header include order is also handled by clang-format.
 - One declaration per line. Never `int a, b;`
 - Line length should be reasonable for diffs (~100 chars recommended).
 - Prefer short, tight sections optimized for skimming.
@@ -74,6 +82,8 @@ T x;                       // fine if initialized later
 ### Headers & Forward Declarations
 
 - Forward-declare all important types in a `fwd.hh` file.
+- **Headers must compile standalone** without requiring additional includes. Rare exception: mutually recursive templated code (requires proper documentation).
+- **Include style:** Fine to rely on transitive includes or do explicit includes—no strong preference.
 - Keep headers lightweight when possible. Use the [vimpl pattern](https://solidean.com/blog/2025/the-vimpl-pattern-for-cpp/) for non-performance-critical types.
 - Avoid opening namespaces unnecessarily. Prefer qualified names:
   ```cpp
@@ -96,6 +106,10 @@ Non-performance-critical functions can live in `.cc` files to reduce compile tim
 
 **Goal:** Maximum performance without requiring LTO, while remaining compile-time conscious.
 
+**Performance priorities:** High runtime performance > low compile times > low binary size. Tradeoffs must remain reasonable. Prefer O(1) template instantiations over O(n) where feasible.
+
+**Definition of "hot-path":** Code reasonably used in the innermost/most-executed parts of user code where it can actually be the bottleneck. A little math or conversion before a filesystem syscall will never matter performance-wise.
+
 ---
 
 ## Language Features
@@ -103,7 +117,9 @@ Non-performance-critical functions can live in `.cc` files to reduce compile tim
 ### Templates & Constraints
 
 - Use concepts, `requires` constraints, and `static_assert` judiciously.
+- **Prefer `static_assert` in templated code** to produce high-quality error messages, even if less SFINAE-friendly. SFINAE is for overload control; minimize overloading in general. Exception: view types that are inclusive in what implicitly constructs to them.
 - Prefer `requires` + `static_assert` over SFINAE and pre-C++20 template metaprogramming.
+- **Minimize template bloat:** Use type erasure at key points. Balance fast, inlineable hot-path code with reasonable compile times and binary size. Techniques include thin templates, vimpl, and type erasure.
 - Explicitly prefix `cc::` even inside the library when taking templated arguments to prevent unintended ADL capture.
 - Non-trivial ADL usage must always be explicitly marked.
 - Use C++23 deducing `this` when it provides clearer or more efficient code:
@@ -114,9 +130,42 @@ Non-performance-critical functions can live in `.cc` files to reduce compile tim
   };
   ```
 
+### Templated Callables & Invocables
+
+When accepting templated callables (predicates, functors, callbacks), choose the invocation method based on flexibility needed:
+
+- **Is there a reasonable index to optionally pass?** → Use `cc::invoke_with_optional_idx` (supports `pred(elem)` and `pred(idx, elem)`)
+- **Could pointer-to-member or pointer-to-member-function make sense?** → Use `cc::invoke`
+- **Otherwise** → Use direct `operator()` for best compile times
+
+**Example with optional index:**
+```cpp
+template <class Pred>
+void remove_all_where(Pred&& pred) {
+    // ...
+    if (cc::invoke_with_optional_idx(idx, pred, elem))  // supports pred(elem) and pred(idx, elem)
+        // ...
+}
+
+// Usage:
+vec.remove_all_where([](auto const& e) { return e.is_empty(); });
+vec.remove_all_where([](int i, auto const& e) { return i > 5 && e.value < 0; });
+vec.remove_all_where(&T::is_empty);     // pointer-to-member-function works too
+```
+
+**Example with fixed signature:**
+```cpp
+template <class EqPred>
+bool strip_matching_prefix_with(string_view s, EqPred&& eq) {
+    // ...
+    if (eq(c0, c1))  // direct call: only eq(char, char) makes sense
+        // ...
+}
+```
+
 ### constexpr & noexcept
 
-- **constexpr:** Use only when you actively anticipate usage in a constexpr context.
+- **constexpr:** Use only when anticipating actual compile-time usage. Avoid sprinkling `constexpr` everywhere, especially on functions that cannot realistically execute at compile time.
 - **noexcept:** Do not spam. Performance benefit is niche; only add where measurably beneficial.
 
 ### Attributes & Annotations
@@ -225,7 +274,9 @@ Clean-core uses a tiered error handling philosophy:
 | Exceptions                | Exceptional errors requiring non-local control flow                  |
 | `cc::result` / `optional` | Frequent or expected failures                                        |
 
-Use `CC_ASSERT` liberally to verify preconditions and invariants throughout the codebase.
+**Assertions:** Use `CC_ASSERT(cond, msg)` liberally in headers and `.cc` files to check preconditions, postconditions, and invariants. Assertions must be side-effect free (the expression must not be load-bearing for correctness; temporary debug output is fine).
+
+**Undefined behavior:** Avoid relying on UB. Each explicit UB usage must be heavily documented and justified.
 
 ---
 
@@ -234,6 +285,26 @@ Use `CC_ASSERT` liberally to verify preconditions and invariants throughout the 
 - Use `int` when the size is unimportant (magnitude < millions).
 - Use explicitly sized types (`i32`, `u64`, `f32`, etc.) when bit width or precision matters.
 - Avoid "magic sentinels" like `-1` for invalid states. Prefer `optional` or `variant` unless there's a justified performance or memory reason.
+
+---
+
+## Standard Library & Dependencies
+
+**Avoid `std::` code.** Almost always use `cc::` equivalents instead.
+
+**Exception:** `<type_traits>` is allowed—these are thin wrappers around compiler intrinsics that we don't re-wrap.
+
+**Rationale:** Keep compiler intrinsics and `__builtin`s encapsulated in `cc::` implementations so downstream code avoids compiler and platform specifics. Provides a consistent, cohesive foundational library from a single source.
+
+---
+
+## Build Configurations
+
+**Debug, RelWithDebInfo, Release must not majorly differ in behavior or implementation.**
+
+Ideally the only difference is that Release doesn't have `CC_ASSERT` anymore. Debug validations should be handled via additional CMake options and remain available in RelWithDebInfo/Release as well. This applies equally to features like logging levels.
+
+**Keep compiler optimization level orthogonal to other features.**
 
 ---
 
@@ -298,6 +369,7 @@ Use `///` for documentation. **No doc tags, no XML.**
 - Write plain, natural language that describes everything important.
 - Insert blank lines every few lines to break up walls of text and improve skimmability.
 - Keep line length reasonable for diffs.
+- **Include at least one usage example** (~2-10 lines) in doc comments for each major struct/data type.
 
 ```cpp
 /// allocates a new buffer with the specified capacity
@@ -452,25 +524,32 @@ container& operator=(container&& rhs) {
 
 **ABI Stability:** Low priority. Expect to build clean-core from source in most environments.
 
+**Evolution strategy:** Prefer monotonic extension over replacement. When superseding types, aim for "this type remains useful in scenario X, though the newer Y fits most use cases better" rather than "do not use this type anymore."
+
+**Deprecation:** Currently in greenfield phase with no pressing deprecation story.
+
+**Experimental API:** Experimental/"incubator" API is fine but must be contained in `experimental/` for now. Liberal use of `friend` in core API is allowed to access internals in `experimental/`.
+
 ---
 
 ## Summary Checklist
 
 - [ ] East const (`T const`)
 - [ ] Almost-always-auto style
-- [ ] clang-format applied
+- [ ] clang-format applied (version 21.1.7)
+- [ ] Headers compile standalone
 - [ ] Designated initializers where possible
 - [ ] Non-trivial logic uses static factory methods, not constructors
 - [ ] Forward declarations in `fwd.hh`
 - [ ] Single-argument ctors are `explicit`
 - [ ] All four copy/move operations explicitly defined
 - [ ] `[[nodiscard]]` on non-void, non-getter functions
-- [ ] `CC_ASSERT` for preconditions and invariants
+- [ ] `CC_ASSERT` for preconditions and invariants (side-effect free)
 - [ ] Raw pointers are non-owning
 - [ ] Prefer value types or move-only types over shared ownership
 - [ ] Avoid unnecessary copies (use `const&` or view types)
 - [ ] Small values (≤ 32 bytes) passed by value
-- [ ] Documentation uses `///` with natural language
+- [ ] Documentation uses `///` with natural language and usage examples
 - [ ] Group comments above visibility modifiers
 - [ ] Hidden friends for operators where possible
 - [ ] No unnecessary `constexpr` or `noexcept`
@@ -479,3 +558,9 @@ container& operator=(container&& rhs) {
 - [ ] Use `impl` namespace (not `detail`) for implementation details
 - [ ] Consider C++23 deducing `this` where appropriate
 - [ ] Move assignment is subobject-safe (or documented otherwise)
+- [ ] Avoid `std::`—use `cc::` equivalents (exception: `<type_traits>`)
+- [ ] No reliance on UB (or heavily documented/justified)
+- [ ] Template bloat minimized (type erasure, thin templates)
+- [ ] `static_assert` used for quality error messages in templates
+- [ ] Debug/Release behavior is consistent
+- [ ] Experimental API in `experimental/` directory

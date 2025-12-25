@@ -31,6 +31,7 @@ target_sources(clean-core
     src/clean-core/assertf.hh
     src/clean-core/assert-handler.hh
     src/clean-core/bitset.hh
+    src/clean-core/char_predicates.hh
     src/clean-core/disjoint_set.hh
     src/clean-core/fixed_bitset.hh
     src/clean-core/flags.hh
@@ -40,6 +41,7 @@ target_sources(clean-core
     src/clean-core/map.hh
     src/clean-core/mutex.hh
     src/clean-core/optional.hh
+    src/clean-core/pair.hh
     src/clean-core/result.hh
     src/clean-core/ringbuffer.hh
     src/clean-core/set.hh
@@ -54,6 +56,7 @@ target_sources(clean-core
     src/clean-core/tuple.hh
     src/clean-core/unique_function.hh
     src/clean-core/utility.hh
+    src/clean-core/variant.hh
     src/clean-core/vector.hh
     src/clean-core/unique_vector.hh
     src/clean-core/fixed_vector.hh

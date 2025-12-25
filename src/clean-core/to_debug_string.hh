@@ -5,10 +5,12 @@
 #include <clean-core/string_view.hh>
 #include <clean-core/to_string.hh>
 
-#include <format>
 #include <type_traits>
 #include <utility> // for tuple_size
 
+// remove me once we have it
+#include <format>
+#include <string_view>
 
 namespace cc
 {
@@ -75,10 +77,11 @@ void to_debug_string_append_tuple(string& s, T const& v, debug_string_config con
 template <class T>
 [[nodiscard]] string to_debug_string(T const& v, debug_string_config const& cfg)
 {
-    if constexpr (requires { cc::string_view(v); })
+    // TODO: migrate once cc::string landed
+    if constexpr (requires { std::string_view(v); })
     {
         auto s = cc::string("\"");
-        s += cc::string_view(v);
+        s += std::string_view(v);
         s += '\"';
         return s;
     }

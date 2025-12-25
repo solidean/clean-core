@@ -7,6 +7,107 @@
 #include <initializer_list>
 #include <type_traits>
 
+/// Random access iterator for non-contiguous data with a constant stride.
+///
+/// This iterator allows iteration over elements of type T that are stored with a
+/// fixed byte offset (stride) between consecutive elements. It supports all random
+/// access iterator operations and is useful for:
+/// - Accessing interleaved data (e.g., vertex attributes in a structure-of-arrays layout)
+/// - Iterating over matrix rows/columns with custom strides
+/// - Working with strided views of memory buffers
+///
+/// The stride represents the byte offset between consecutive elements and can be:
+/// - positive: forward iteration through memory
+/// - negative: backward iteration through memory
+/// - zero: all elements alias the same memory location (repeated element access)
+///
+/// IMPORTANT: The stride must ensure that all accessed elements are properly aligned
+/// for type T. Misaligned accesses lead to undefined behavior.
+///
+/// Example:
+/// ```
+/// struct Vertex { float x, y, z; int color; };
+/// Vertex vertices[100];
+/// // Create iterator over just the x coordinates (stride = sizeof(Vertex))
+/// auto it = strided_iterator<float>(reinterpret_cast<byte*>(&vertices[0].x), sizeof(Vertex));
+/// ```
+template <class T>
+struct cc::strided_iterator
+{
+    using difference_type = isize;
+    using value_type = T;
+    using byte_ptr = std::conditional_t<std::is_const_v<T>, cc::byte const*, cc::byte*>;
+
+    constexpr strided_iterator() = default;
+    constexpr strided_iterator(byte_ptr ptr, isize stride) : _ptr(ptr), _stride_bytes(stride) {}
+
+    // NOLINTBEGIN(cppcoreguidelines-pro-type-reinterpret-cast)
+    [[nodiscard]] constexpr T& operator*() const { return *reinterpret_cast<T*>(_ptr); }
+    [[nodiscard]] constexpr T* operator->() const { return reinterpret_cast<T*>(_ptr); }
+    // NOLINTEND(cppcoreguidelines-pro-type-reinterpret-cast)
+
+    constexpr strided_iterator& operator++()
+    {
+        _ptr += _stride_bytes;
+        return *this;
+    }
+    constexpr strided_iterator operator++(int)
+    {
+        auto const tmp = *this;
+        ++(*this);
+        return tmp;
+    }
+
+    constexpr strided_iterator& operator--()
+    {
+        _ptr -= _stride_bytes;
+        return *this;
+    }
+    constexpr strided_iterator operator--(int)
+    {
+        auto const tmp = *this;
+        --(*this);
+        return tmp;
+    }
+
+    constexpr strided_iterator& operator+=(isize n)
+    {
+        _ptr += n * _stride_bytes;
+        return *this;
+    }
+    constexpr strided_iterator& operator-=(isize n)
+    {
+        _ptr -= n * _stride_bytes;
+        return *this;
+    }
+
+    [[nodiscard]] friend constexpr strided_iterator operator+(strided_iterator it, isize n) { return it += n; }
+    [[nodiscard]] friend constexpr strided_iterator operator+(isize n, strided_iterator it) { return it += n; }
+    [[nodiscard]] friend constexpr strided_iterator operator-(strided_iterator it, isize n) { return it -= n; }
+
+    [[nodiscard]] friend constexpr isize operator-(strided_iterator const& lhs, strided_iterator const& rhs)
+    {
+        CC_ASSERT(lhs._stride_bytes == rhs._stride_bytes, "cannot compute distance between iterators with "
+                                                          "different strides");
+        if (lhs._stride_bytes == 0)
+            return 0;
+        return (lhs._ptr - rhs._ptr) / lhs._stride_bytes;
+    }
+
+    [[nodiscard]] friend constexpr bool operator==(strided_iterator const& lhs, strided_iterator const& rhs)
+    {
+        return lhs._ptr == rhs._ptr;
+    }
+    [[nodiscard]] friend constexpr auto operator<=>(strided_iterator const& lhs, strided_iterator const& rhs)
+    {
+        return lhs._ptr <=> rhs._ptr;
+    }
+
+private:
+    byte_ptr _ptr = nullptr;
+    isize _stride_bytes = 0;
+};
+
 /// Non-owning view over elements of type T with a constant stride between elements
 /// Useful for accessing interleaved data or subsets with regular spacing
 ///
@@ -120,95 +221,7 @@ public:
 
     // iterators
 public:
-    /// Iterator for strided_span that handles non-contiguous elements.
-    struct iterator
-    {
-        using difference_type = isize;
-        using value_type = T;
-
-        constexpr iterator() = default;
-        constexpr iterator(byte_ptr ptr, isize stride) : _ptr(ptr), _stride_bytes(stride) {}
-
-        [[nodiscard]] constexpr T& operator*() const { return *strided_span::from_byte_ptr(_ptr); }
-        [[nodiscard]] constexpr T* operator->() const { return strided_span::from_byte_ptr(_ptr); }
-
-        constexpr iterator& operator++()
-        {
-            _ptr += _stride_bytes;
-            return *this;
-        }
-        constexpr iterator operator++(int)
-        {
-            auto const tmp = *this;
-            ++(*this);
-            return tmp;
-        }
-
-        constexpr iterator& operator--()
-        {
-            _ptr -= _stride_bytes;
-            return *this;
-        }
-        constexpr iterator operator--(int)
-        {
-            auto const tmp = *this;
-            --(*this);
-            return tmp;
-        }
-
-        constexpr iterator& operator+=(isize n)
-        {
-            _ptr += n * _stride_bytes;
-            return *this;
-        }
-        constexpr iterator& operator-=(isize n)
-        {
-            _ptr -= n * _stride_bytes;
-            return *this;
-        }
-
-        [[nodiscard]] friend constexpr iterator operator+(iterator it, isize n) { return it += n; }
-        [[nodiscard]] friend constexpr iterator operator+(isize n, iterator it) { return it += n; }
-        [[nodiscard]] friend constexpr iterator operator-(iterator it, isize n) { return it -= n; }
-
-        [[nodiscard]] friend constexpr isize operator-(iterator const& lhs, iterator const& rhs)
-        {
-            CC_ASSERT(lhs._stride_bytes == rhs._stride_bytes, "cannot compute distance between iterators with "
-                                                              "different strides");
-            if (lhs._stride_bytes == 0)
-                return 0;
-            return (lhs._ptr - rhs._ptr) / lhs._stride_bytes;
-        }
-
-        [[nodiscard]] friend constexpr bool operator==(iterator const& lhs, iterator const& rhs)
-        {
-            return lhs._ptr == rhs._ptr;
-        }
-        [[nodiscard]] friend constexpr bool operator!=(iterator const& lhs, iterator const& rhs)
-        {
-            return lhs._ptr != rhs._ptr;
-        }
-        [[nodiscard]] friend constexpr bool operator<(iterator const& lhs, iterator const& rhs)
-        {
-            return lhs._ptr < rhs._ptr;
-        }
-        [[nodiscard]] friend constexpr bool operator<=(iterator const& lhs, iterator const& rhs)
-        {
-            return lhs._ptr <= rhs._ptr;
-        }
-        [[nodiscard]] friend constexpr bool operator>(iterator const& lhs, iterator const& rhs)
-        {
-            return lhs._ptr > rhs._ptr;
-        }
-        [[nodiscard]] friend constexpr bool operator>=(iterator const& lhs, iterator const& rhs)
-        {
-            return lhs._ptr >= rhs._ptr;
-        }
-
-    private:
-        byte_ptr _ptr = nullptr;
-        isize _stride_bytes = 0;
-    };
+    using iterator = cc::strided_iterator<T>;
 
     /// Returns an iterator to the first element.
     /// Enables range-based for loops.

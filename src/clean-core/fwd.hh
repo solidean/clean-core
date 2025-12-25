@@ -64,6 +64,13 @@ struct memory_resource;
 template <class T>
 struct allocation;
 
+//
+// Strings
+//
+
+
+struct string_view;
+
 
 //
 // Views
@@ -73,6 +80,8 @@ template <class T>
 struct span;
 template <class T, isize N>
 struct fixed_span;
+template <class T>
+struct strided_iterator;
 template <class T>
 struct strided_span;
 
@@ -116,6 +125,12 @@ struct ringbuffer;
 
 template <class... Ts>
 struct tuple;
+
+template <class... Ts>
+struct variant;
+
+template <class T, class U = T>
+struct pair;
 
 template <class IdxT>
 struct disjoint_set;
