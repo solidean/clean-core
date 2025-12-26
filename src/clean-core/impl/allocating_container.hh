@@ -459,16 +459,50 @@ public:
 
     /// Resizes the container to new_size with uninitialized memory.
     /// Only valid for trivially copyable and trivially destructible types.
-    /// Optimizes allocation usage by repositioning obj_start/obj_end to maximize available space.
-    /// Elements are not initialized - their contents are undefined.
-    /// Use this only when you will overwrite all elements.
+    /// If new_size <= size(), shrinks the container.
+    /// If new_size > size(), extends with uninitialized elements (only new elements are uninitialized).
+    /// May reallocate if growing beyond current capacity - existing elements are preserved on reallocation.
     void resize_to_uninitialized(isize new_size)
     {
         static_assert(std::is_trivially_copyable_v<T>, "resize_to_uninitialized requires T to be trivially copyable");
         static_assert(std::is_trivially_destructible_v<T>, "resize_to_uninitialized requires T to be trivially "
                                                            "destructible");
 
+        if (new_size <= size())
+        {
+            // Shrink: just adjust obj_end (trivially destructible, so no dtors needed)
+            _data.obj_end = _data.obj_start + new_size;
+            return;
+        }
+
+        // Grow: ensure capacity and extend obj_end
+        auto const count = new_size - size();
+        reserve_back(count);
+        _data.obj_end = _data.obj_start + new_size;
+    }
+
+    /// Clears and resizes the container to new_size with uninitialized memory.
+    /// Only valid for trivially copyable and trivially destructible types.
+    /// If new_size <= size(), shrinks the container (no clear).
+    /// If new_size > size(), clears existing elements and creates new_size uninitialized elements.
+    /// May reallocate if growing beyond current capacity.
+    /// On reallocation, existing content is not preserved (hence "clear").
+    /// Optimizes allocation usage by repositioning obj_start/obj_end to maximize available space.
+    void clear_resize_to_uninitialized(isize new_size)
+    {
+        static_assert(std::is_trivially_copyable_v<T>, "clear_resize_to_uninitialized requires T to be trivially copyable");
+        static_assert(std::is_trivially_destructible_v<T>, "clear_resize_to_uninitialized requires T to be trivially "
+                                                           "destructible");
+
+        if (new_size <= size())
+        {
+            // Shrink: just adjust obj_end (trivially destructible, so no dtors needed)
+            _data.obj_end = _data.obj_start + new_size;
+            return;
+        }
+
         // Reposition obj_start/obj_end to first valid position (aligned for T)
+        // This maximizes available space by starting from the beginning of the allocation
         auto const aligned_start = (T*)cc::align_up(_data.alloc_start, alignof(T));
         _data.obj_start = aligned_start;
         _data.obj_end = aligned_start;
@@ -1075,6 +1109,15 @@ public:
     {
         container_t c;
         c._data = cc::move(data);
+        return c;
+    }
+
+    // creates an empty container with the specified memory resource (no allocation)
+    // resource can be nullptr, which means the global default allocator will be used
+    [[nodiscard]] static container_t create_with_resource(cc::memory_resource const* resource)
+    {
+        container_t c;
+        c._data.custom_resource = resource;
         return c;
     }
 

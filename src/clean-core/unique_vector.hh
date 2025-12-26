@@ -59,6 +59,7 @@ public:
     using base::create_from_allocation; // create from existing allocation
     using base::create_uninitialized;   // create with uninitialized memory
     using base::create_with_capacity;   // create with reserved capacity
+    using base::create_with_resource;   // create empty with specified memory resource
 
     // appending operations
 public:
@@ -98,15 +99,16 @@ public:
 
     // resizing operations
 public:
-    using base::resize_down_to;          // shrink to new_size by destroying trailing elements
-    using base::resize_to_constructed;   // resize with custom construction args
-    using base::resize_to_defaulted;     // resize to new_size, default-construct new elements
-    using base::resize_to_filled;        // resize to new_size, fill new elements with value
-    using base::resize_to_uninitialized; // resize to new_size with uninitialized memory (trivial types only)
+    using base::resize_down_to;        // shrink to new_size by destroying trailing elements
+    using base::resize_to_constructed; // resize with custom construction args
+    using base::resize_to_defaulted;   // resize to new_size, default-construct new elements
+    using base::resize_to_filled;      // resize to new_size, fill new elements with value
+    using base::resize_to_uninitialized; // resize to new_size, new elements uninitialized, preserves existing (trivial types only)
 
     using base::clear_resize_to_constructed; // clear and resize with custom construction args
     using base::clear_resize_to_defaulted;   // clear and resize to new_size, default-construct all elements
     using base::clear_resize_to_filled;      // clear and resize to new_size, fill all elements with value
+    using base::clear_resize_to_uninitialized; // clear and resize to new_size, all elements uninitialized (trivial types only)
 
     // capacity management
 public:

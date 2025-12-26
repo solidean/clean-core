@@ -3,18 +3,16 @@
 #include <clean-core/assert.hh>
 #include <clean-core/fwd.hh>
 #include <clean-core/optional.hh>
+#include <clean-core/span.hh>
+#include <clean-core/utility.hh>
 
 #include <initializer_list>
 #include <type_traits>
 
-/// Random access iterator for non-contiguous data with a constant stride.
+/// Forward iterator for non-contiguous data with a constant stride.
 ///
 /// This iterator allows iteration over elements of type T that are stored with a
-/// fixed byte offset (stride) between consecutive elements. It supports all random
-/// access iterator operations and is useful for:
-/// - Accessing interleaved data (e.g., vertex attributes in a structure-of-arrays layout)
-/// - Iterating over matrix rows/columns with custom strides
-/// - Working with strided views of memory buffers
+/// fixed byte offset (stride) between consecutive elements.
 ///
 /// The stride represents the byte offset between consecutive elements and can be:
 /// - positive: forward iteration through memory
@@ -24,88 +22,59 @@
 /// IMPORTANT: The stride must ensure that all accessed elements are properly aligned
 /// for type T. Misaligned accesses lead to undefined behavior.
 ///
-/// Example:
-/// ```
-/// struct Vertex { float x, y, z; int color; };
-/// Vertex vertices[100];
-/// // Create iterator over just the x coordinates (stride = sizeof(Vertex))
-/// auto it = strided_iterator<float>(reinterpret_cast<byte*>(&vertices[0].x), sizeof(Vertex));
-/// ```
+/// DESIGN: This iterator uses a counting approach (ptr, stride, remaining_count).
+/// It compares against cc::sentinel for end-of-range detection, properly supporting
+/// zero-stride where the pointer never advances.
+///
+/// NOTE: This is a forward iterator only - supports range-based for, but not random access.
+/// Use operator[] on strided_span for indexed access.
 template <class T>
 struct cc::strided_iterator
 {
-    using difference_type = isize;
-    using value_type = T;
     using byte_ptr = std::conditional_t<std::is_const_v<T>, cc::byte const*, cc::byte*>;
 
     constexpr strided_iterator() = default;
-    constexpr strided_iterator(byte_ptr ptr, isize stride) : _ptr(ptr), _stride_bytes(stride) {}
+    constexpr strided_iterator(byte_ptr ptr, isize stride, isize size) // NOLINT(bugprone-easily-swappable-parameters)
+      : _ptr(ptr), _stride_bytes(stride), _remaining_count(size)
+    {
+        CC_ASSERT(size >= 0, "strided_iterator size must be non-negative");
+    }
 
     // NOLINTBEGIN(cppcoreguidelines-pro-type-reinterpret-cast)
-    [[nodiscard]] constexpr T& operator*() const { return *reinterpret_cast<T*>(_ptr); }
-    [[nodiscard]] constexpr T* operator->() const { return reinterpret_cast<T*>(_ptr); }
+    [[nodiscard]] constexpr T& operator*() const
+    {
+        CC_ASSERT(_remaining_count > 0, "dereferencing past-the-end iterator");
+        return *reinterpret_cast<T*>(_ptr);
+    }
+    [[nodiscard]] constexpr T* operator->() const
+    {
+        CC_ASSERT(_remaining_count > 0, "dereferencing past-the-end iterator");
+        return reinterpret_cast<T*>(_ptr);
+    }
     // NOLINTEND(cppcoreguidelines-pro-type-reinterpret-cast)
 
     constexpr strided_iterator& operator++()
     {
+        CC_ASSERT(_remaining_count > 0, "incrementing past-the-end iterator");
         _ptr += _stride_bytes;
-        return *this;
-    }
-    constexpr strided_iterator operator++(int)
-    {
-        auto const tmp = *this;
-        ++(*this);
-        return tmp;
-    }
-
-    constexpr strided_iterator& operator--()
-    {
-        _ptr -= _stride_bytes;
-        return *this;
-    }
-    constexpr strided_iterator operator--(int)
-    {
-        auto const tmp = *this;
-        --(*this);
-        return tmp;
-    }
-
-    constexpr strided_iterator& operator+=(isize n)
-    {
-        _ptr += n * _stride_bytes;
-        return *this;
-    }
-    constexpr strided_iterator& operator-=(isize n)
-    {
-        _ptr -= n * _stride_bytes;
+        --_remaining_count;
         return *this;
     }
 
-    [[nodiscard]] friend constexpr strided_iterator operator+(strided_iterator it, isize n) { return it += n; }
-    [[nodiscard]] friend constexpr strided_iterator operator+(isize n, strided_iterator it) { return it += n; }
-    [[nodiscard]] friend constexpr strided_iterator operator-(strided_iterator it, isize n) { return it -= n; }
-
-    [[nodiscard]] friend constexpr isize operator-(strided_iterator const& lhs, strided_iterator const& rhs)
+    // Comparison with sentinel (for range-based for loops)
+    [[nodiscard]] friend constexpr bool operator==(strided_iterator const& it, cc::sentinel)
     {
-        CC_ASSERT(lhs._stride_bytes == rhs._stride_bytes, "cannot compute distance between iterators with "
-                                                          "different strides");
-        if (lhs._stride_bytes == 0)
-            return 0;
-        return (lhs._ptr - rhs._ptr) / lhs._stride_bytes;
+        return it._remaining_count == 0;
     }
-
-    [[nodiscard]] friend constexpr bool operator==(strided_iterator const& lhs, strided_iterator const& rhs)
+    [[nodiscard]] friend constexpr bool operator!=(strided_iterator const& it, cc::sentinel)
     {
-        return lhs._ptr == rhs._ptr;
-    }
-    [[nodiscard]] friend constexpr auto operator<=>(strided_iterator const& lhs, strided_iterator const& rhs)
-    {
-        return lhs._ptr <=> rhs._ptr;
+        return it._remaining_count != 0;
     }
 
 private:
     byte_ptr _ptr = nullptr;
     isize _stride_bytes = 0;
+    isize _remaining_count = 0;
 };
 
 /// Non-owning view over elements of type T with a constant stride between elements
@@ -122,12 +91,18 @@ private:
 /// IMPORTANT: Normal C++ alignment rules apply. The stride must ensure that all accessed
 /// elements are properly aligned for type T. Using a stride less than alignof(T) or
 /// strides that result in misaligned accesses can lead to undefined behavior.
+///
+/// DESIGN: Uses counting iterators with sentinel-based end detection. The begin() iterator
+/// contains the full size and counts down, while end() returns cc::sentinel. This design
+/// properly supports zero-stride iteration and eliminates any possibility of infinite loops.
 template <class T>
 struct cc::strided_span
 {
     // types
 public:
     using byte_ptr = std::conditional_t<std::is_const_v<T>, cc::byte const*, cc::byte*>;
+    using iterator = cc::strided_iterator<T>;
+    using sentinel = cc::sentinel;
 
 private:
     // NOLINTBEGIN(cppcoreguidelines-pro-type-reinterpret-cast)
@@ -168,6 +143,17 @@ public:
         requires std::is_const_v<T>
       : _start(strided_span::to_byte_ptr(init.begin())),
         _size(static_cast<isize>(init.size())),
+        _stride_bytes(static_cast<isize>(sizeof(T)))
+    {
+    }
+
+    /// Creates a strided_span viewing the entire C array.
+    /// Deduces size N from array type; implicit conversion allowed.
+    /// The stride is set to sizeof(T) for contiguous iteration.
+    template <std::size_t N>
+    constexpr strided_span(T (&arr)[N])         //
+      : _start(strided_span::to_byte_ptr(arr)), //
+        _size(static_cast<isize>(N)),
         _stride_bytes(static_cast<isize>(sizeof(T)))
     {
     }
@@ -221,13 +207,14 @@ public:
 
     // iterators
 public:
-    using iterator = cc::strided_iterator<T>;
-
     /// Returns an iterator to the first element.
+    /// The iterator contains the size and counts down to zero.
     /// Enables range-based for loops.
-    [[nodiscard]] constexpr iterator begin() const { return iterator(_start, _stride_bytes); }
-    /// Returns an iterator to one past the last element.
-    [[nodiscard]] constexpr iterator end() const { return iterator(_start + _size * _stride_bytes, _stride_bytes); }
+    [[nodiscard]] constexpr iterator begin() const { return iterator(_start, _stride_bytes, _size); }
+
+    /// Returns a sentinel representing the end of the range.
+    /// The iterator compares against this sentinel by checking if remaining_count == 0.
+    [[nodiscard]] constexpr sentinel end() const { return {}; }
 
     // queries
 public:

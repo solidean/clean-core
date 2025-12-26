@@ -37,9 +37,13 @@ public:
     /// Default optional is empty: has_value() == false.
     optional() = default;
 
-    /// Constructs an optional holding the given value; implicit conversion allowed.
-    /// Move-constructs T into internal storage.
-    optional(T value) : _has_value(true) { new (cc::placement_new, &_storage.value) T(cc::move(value)); }
+    /// Constructs an optional holding the given value; conditionally explicit.
+    /// Forwarding constructor: perfect-forwards the value into internal storage.
+    template <class U = std::remove_cv_t<T>>
+    explicit(!std::is_convertible_v<U, T>) constexpr optional(U&& value) : _has_value(true) // NOLINT
+    {
+        new (cc::placement_new, &_storage.value) T(cc::forward<U>(value));
+    }
 
     /// Constructs an empty optional from cc::nullopt; allows explicit empty initialization.
     optional(nullopt_t) {}
@@ -187,7 +191,23 @@ public:
         if (lhs._has_value)
             return lhs._storage.value == rhs._storage.value;
         return true;
-    };
+    }
+
+    /// Equality comparison with a value: optional is equal to the value if it holds an equal value.
+    /// Returns false if the optional is empty.
+    /// Avoids constructing a temporary optional during comparison.
+    [[nodiscard]] friend bool operator==(optional const& lhs, T const& rhs)
+        requires requires(T v) { bool(v == v); }
+    {
+        return lhs._has_value && lhs._storage.value == rhs;
+    }
+
+    /// Equality comparison with bool: deleted when T is not bool to prevent implicit conversions.
+    /// When T is bool, this allows comparing optional<bool> with true/false.
+    /// When T is not bool, this prevents optional<int> from comparing with true/false.
+    [[nodiscard]] bool operator==(bool) const
+        requires(!std::is_same_v<T, bool>)
+    = delete;
 
     // members
 private:

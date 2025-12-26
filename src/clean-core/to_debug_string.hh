@@ -54,7 +54,7 @@ namespace impl
 template <class T>
 bool to_debug_string_append_elem(string& s, T const& v, debug_string_config const& cfg)
 {
-    if (isize(s.size()) >= cfg.max_length)
+    if (s.size() >= cfg.max_length)
     {
         s += ", ...";
         return false;
@@ -134,6 +134,21 @@ template <class T>
         return cc::string(v.to_string());
     }
     else if constexpr (requires {
+                           { v.has_value() } -> std::convertible_to<bool>;
+                           v.value();
+                       })
+    {
+        if (!v.has_value())
+            return "nullopt";
+        else
+        {
+            auto s = string("value(");
+            s += cc::to_debug_string(v.value(), cfg);
+            s += ")";
+            return s;
+        }
+    }
+    else if constexpr (requires {
                            std::begin(v);
                            std::end(v);
                        })
@@ -164,7 +179,7 @@ template <class T>
     }
     else
     {
-        auto s = string("0x");
+        auto s = string("raw(0x");
         auto const align = alignof(T);
         auto const p_v = (unsigned char const*)&v;
         for (size_t i = 0; i < sizeof(T); ++i)
@@ -173,6 +188,7 @@ template <class T>
                 s += "_";
             s += std::format("{:02X}", p_v[i]);
         }
+        s += ")";
         return s;
     }
 }

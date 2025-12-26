@@ -108,10 +108,12 @@ add_executable(clean-core-test
     tests/macros-test.cc
     tests/optional-test.cc
     tests/span-test.cc
+    tests/strided_span-test.cc
     tests/string-test.cc
     tests/string_view-test.cc
     tests/to_debug_string-test.cc
     tests/utility-test.cc
+    tests/vector-test.cc
 )
 
 target_link_libraries(clean-core-test

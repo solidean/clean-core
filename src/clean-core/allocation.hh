@@ -57,6 +57,7 @@ struct cc::memory_resource
     /// min_bytes == 0 always sets *out_ptr to nullptr and returns 0.
     /// min_bytes > 0 always sets *out_ptr to non-null; failure is fatal (assert/terminate) or throws.
     /// Allocators that round to size classes can report the rounded-up size to allow more effective memory use.
+    /// REQUIRED: Must be non-null for valid memory resources.
     cc::function_ptr<isize(cc::byte** out_ptr, isize min_bytes, isize max_bytes, isize alignment, void* userdata)> allocate_bytes
         = nullptr;
 
@@ -69,6 +70,7 @@ struct cc::memory_resource
     /// Implementations should prefer returning -1 over fatal failure when feasible (best-effort).
     /// Wrappers are still permitted to fatally fail rather than return -1.
     /// Allocators that round to size classes can report the rounded-up size to allow more effective memory use.
+    /// OPTIONAL: May be nullptr; resources that don't support fallible allocation can leave this unset.
     cc::function_ptr<isize(cc::byte** out_ptr, isize min_bytes, isize max_bytes, isize alignment, void* userdata)> try_allocate_bytes
         = nullptr;
 
@@ -77,6 +79,7 @@ struct cc::memory_resource
     /// `bytes` and `alignment` must match the values used during allocation.
     /// Noexcept in spirit: only programmer bugs (e.g., mismatched size) may throw or terminate.
     /// Allocator exhaustion itself must not throw; containers may leak memory if this throws.
+    /// REQUIRED: Must be non-null for valid memory resources.
     cc::function_ptr<void(cc::byte* p, isize bytes, isize alignment, void* userdata)> deallocate_bytes = nullptr;
 
     /// Attempt to resize an existing allocation in place without moving or freeing it.
@@ -108,7 +111,7 @@ struct cc::memory_resource
     /// Noexcept in spirit: only programmer bugs (e.g., mismatched old_bytes) may throw or terminate.
     /// Allocator exhaustion itself must not throw; containers may leak memory if this throws.
     ///
-    /// Future: allow letting this be "nullptr" to signal "we don't support resize"
+    /// OPTIONAL: May be nullptr; resources that don't support in-place resize can leave this unset.
     cc::function_ptr<isize(cc::byte* p, isize old_bytes, isize min_bytes, isize max_bytes, isize alignment, void* userdata)>
         try_resize_bytes_in_place = nullptr;
 
@@ -258,6 +261,10 @@ public:
 
         auto const old_bytes = alloc_end - alloc_start;
         auto const& res = resource();
+
+        // no support for resizing?
+        if (res.try_resize_bytes_in_place == nullptr)
+            return false;
 
         // Try to resize in place using the allocator API
         isize const new_bytes

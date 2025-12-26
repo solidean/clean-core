@@ -40,6 +40,7 @@ public:
     using base::create_filled;          // create with copies of a value
     using base::create_from_allocation; // create from existing allocation
     using base::create_uninitialized;   // create with uninitialized memory
+    using base::create_with_resource;   // create empty with specified memory resource
 
     // content mutation
 public:
