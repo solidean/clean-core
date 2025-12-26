@@ -355,7 +355,7 @@ public:
 
         if (new_size <= size())
         {
-            resize_down_to(new_size);
+            this->resize_down_to(new_size);
             return;
         }
 
@@ -365,8 +365,8 @@ public:
         allocation<T> new_allocation;
         auto p_obj_end = &_data.obj_end;
 
-        if (!has_capacity_back_for(count)) [[unlikely]]
-            p_obj_end = ensure_capacity_back_begin(new_allocation, count);
+        if (!this->has_capacity_back_for(count)) [[unlikely]]
+            p_obj_end = this->ensure_capacity_back_begin(new_allocation, count);
 
         // Construct new elements with args (not forwarded, so they can be reused)
         // This is safe even if args reference old data because old allocation remains valid
@@ -377,7 +377,7 @@ public:
         }
 
         if (new_allocation.is_valid()) [[unlikely]]
-            ensure_capacity_back_finalize(new_allocation);
+            this->ensure_capacity_back_finalize(new_allocation);
     }
 
     /// Resizes the container to the specified size, filling new elements with copies of value.
@@ -388,7 +388,7 @@ public:
     void resize_to_filled(isize new_size, T const& value)
     {
         static_assert(std::is_copy_constructible_v<T>, "resize_to_filled requires T to be copy constructible");
-        resize_to_constructed(new_size, value);
+        this->resize_to_constructed(new_size, value);
     }
 
     /// Resizes the container to the specified size, default-constructing new elements.
@@ -398,7 +398,7 @@ public:
     void resize_to_defaulted(isize new_size)
     {
         static_assert(std::is_default_constructible_v<T>, "resize_to_defaulted requires T to be default constructible");
-        resize_to_constructed(new_size);
+        this->resize_to_constructed(new_size);
     }
 
     /// Clears the container and resizes it to new_size, constructing all elements with the given arguments.
@@ -414,17 +414,11 @@ public:
             requires { T(args...); }, "clear_resize_to_constructed: T is not constructible from the provided "
                                       "argument types");
 
-        if (new_size <= size())
-        {
-            resize_down_to(new_size);
-            return;
-        }
-
         // Clear existing elements
-        clear();
+        this->clear();
 
         // Reserve capacity for new elements
-        reserve_back(new_size);
+        this->reserve_back(new_size);
 
         // Construct new elements with args (not forwarded, so they can be reused)
         for (isize i = 0; i < new_size; ++i)
@@ -442,7 +436,7 @@ public:
     {
         static_assert(std::is_default_constructible_v<T>, "clear_resize_to_defaulted requires T to be default "
                                                           "constructible");
-        clear_resize_to_constructed(new_size);
+        this->clear_resize_to_constructed(new_size);
     }
 
     /// Clears the container and resizes it to new_size, filling all elements with copies of value.
@@ -454,7 +448,7 @@ public:
     {
         static_assert(std::is_copy_constructible_v<T>, "clear_resize_to_filled requires T to be copy constructible");
         // TODO: could be split into a copy-assign prefix, then copy-constructed tail
-        clear_resize_to_constructed(new_size, value);
+        this->clear_resize_to_constructed(new_size, value);
     }
 
     /// Resizes the container to new_size with uninitialized memory.
@@ -477,7 +471,7 @@ public:
 
         // Grow: ensure capacity and extend obj_end
         auto const count = new_size - size();
-        reserve_back(count);
+        this->reserve_back(count);
         _data.obj_end = _data.obj_start + new_size;
     }
 
@@ -490,7 +484,8 @@ public:
     /// Optimizes allocation usage by repositioning obj_start/obj_end to maximize available space.
     void clear_resize_to_uninitialized(isize new_size)
     {
-        static_assert(std::is_trivially_copyable_v<T>, "clear_resize_to_uninitialized requires T to be trivially copyable");
+        static_assert(std::is_trivially_copyable_v<T>, "clear_resize_to_uninitialized requires T to be trivially "
+                                                       "copyable");
         static_assert(std::is_trivially_destructible_v<T>, "clear_resize_to_uninitialized requires T to be trivially "
                                                            "destructible");
 
@@ -508,7 +503,7 @@ public:
         _data.obj_end = aligned_start;
 
         // Reserve capacity for new_size elements - might resize or realloc
-        reserve_back(new_size);
+        this->reserve_back(new_size);
 
         // Set obj_end to create new_size uninitialized elements
         _data.obj_end = _data.obj_start + new_size;
@@ -519,13 +514,13 @@ public:
     /// If sufficient capacity already exists, this is a no-op.
     void reserve_back(isize count)
     {
-        if (has_capacity_back_for(count))
+        if (this->has_capacity_back_for(count))
             return;
 
         // Compute new allocation size for in-place resize
         // Preserve existing front capacity by growing from current alloc size
-        auto const inplace_size_min
-            = alloc_grow_size_for(_data.alloc_size_bytes(), _data.alloc_size_bytes() + count * sizeof(T));
+        auto const inplace_size_min = allocating_container::alloc_grow_size_for(
+            _data.alloc_size_bytes(), _data.alloc_size_bytes() + count * sizeof(T));
         auto const inplace_size_max = inplace_size_min + cc::min(inplace_size_min, alloc_max_slack);
 
         // Try to resize in place first
@@ -534,14 +529,14 @@ public:
 
         // In-place resize failed, allocate new buffer
         // Now we can choose how much front capacity to preserve
-        auto const new_capacity_front = container_t::uses_capacity_front ? capacity_front() : 0;
-        auto const obj_size = size();
+        auto const new_capacity_front = container_t::uses_capacity_front ? this->capacity_front() : 0;
+        auto const obj_size = this->size();
 
-        auto const new_size_min = alloc_grow_size_for((new_capacity_front + obj_size) * sizeof(T),
-                                                      (new_capacity_front + obj_size + count) * sizeof(T));
+        auto const new_size_min = allocating_container::alloc_grow_size_for(
+            (new_capacity_front + obj_size) * sizeof(T), (new_capacity_front + obj_size + count) * sizeof(T));
         auto const new_size_max = new_size_min + cc::min(new_size_min, alloc_max_slack);
 
-        move_to_new_allocation(new_size_min, new_size_max, new_capacity_front);
+        this->move_to_new_allocation(new_size_min, new_size_max, new_capacity_front);
     }
 
     /// Ensures at least `count` elements can be inserted at the back without reallocation.
@@ -550,7 +545,7 @@ public:
     /// If sufficient capacity already exists, this is a no-op.
     void reserve_back_exact(isize count)
     {
-        if (has_capacity_back_for(count))
+        if (this->has_capacity_back_for(count))
             return;
 
         // Compute exact needed size for in-place resize
@@ -563,12 +558,12 @@ public:
 
         // In-place resize failed, allocate new buffer
         // Now we can choose how much front capacity to preserve
-        auto const new_capacity_front = container_t::uses_capacity_front ? capacity_front() : 0;
-        auto const obj_size = size();
+        auto const new_capacity_front = container_t::uses_capacity_front ? this->capacity_front() : 0;
+        auto const obj_size = this->size();
 
         auto const new_size = cc::align_up((new_capacity_front + obj_size + count) * sizeof(T), alloc_alignment);
 
-        move_to_new_allocation(new_size, new_size, new_capacity_front);
+        this->move_to_new_allocation(new_size, new_size, new_capacity_front);
     }
 
     /// Ensures at least `count` elements can be inserted at the front without reallocation.
@@ -581,10 +576,10 @@ public:
 
         // Compute new allocation size with exponential growth
         auto const needed_bytes = _data.alloc_size_bytes() + count * sizeof(T);
-        auto const new_size_min = alloc_grow_size_for(_data.alloc_size_bytes(), needed_bytes);
+        auto const new_size_min = allocating_container::alloc_grow_size_for(_data.alloc_size_bytes(), needed_bytes);
         auto const new_size_max = new_size_min + cc::min(new_size_min, alloc_max_slack);
 
-        move_to_new_allocation(new_size_min, new_size_max, count);
+        this->move_to_new_allocation(new_size_min, new_size_max, count);
     }
 
     /// Ensures at least `count` elements can be inserted at the front without reallocation.
@@ -593,14 +588,14 @@ public:
     /// If sufficient capacity already exists, this is a no-op.
     void reserve_front_exact(isize count)
     {
-        if (has_capacity_front_for(count))
+        if (this->has_capacity_front_for(count))
             return;
 
         // Compute exact needed size, aligned
         auto const needed_bytes = _data.alloc_size_bytes() + count * sizeof(T);
         auto const new_size = cc::align_up(needed_bytes, alloc_alignment);
 
-        move_to_new_allocation(new_size, new_size, count);
+        this->move_to_new_allocation(new_size, new_size, count);
     }
 
     /// Reduces allocation size to fit the current number of elements.
@@ -610,14 +605,14 @@ public:
     void shrink_to_fit()
     {
         // Compute tight allocation size (align_up of size * sizeof(T) to alloc_alignment)
-        auto const tight_size = cc::align_up(size() * sizeof(T), alloc_alignment);
+        auto const tight_size = cc::align_up(this->size() * sizeof(T), alloc_alignment);
 
         // Only reallocate if current allocation size differs from tight size
         if (_data.alloc_size_bytes() == tight_size)
             return;
 
         // Move to new tight allocation with no front capacity (obj_offset = 0)
-        move_to_new_allocation(tight_size, tight_size, 0);
+        this->move_to_new_allocation(tight_size, tight_size, 0);
     }
 
     // appends
@@ -633,7 +628,7 @@ public:
         static_assert(
             requires { T(cc::forward<Args>(args)...); }, "emplace_back_stable: T is not constructible from "
                                                          "the provided argument types");
-        CC_ASSERT(has_capacity_back_for(1), "not enough capacity for emplace_back_stable");
+        CC_ASSERT(this->has_capacity_back_for(1), "not enough capacity for emplace_back_stable");
         auto const p = new (cc::placement_new, _data.obj_end) T(cc::forward<Args>(args)...);
         _data.obj_end++; // _after_ so exceptions in T(...) leave the state valid
         return *p;
@@ -644,14 +639,14 @@ public:
     /// No allocation occurs; pointers, references, and iterators remain valid (stable operation).
     /// Strong exception safety; O(1) complexity.
     /// Low-level primitive for performance-critical or reference-sensitive code.
-    constexpr T& push_back_stable(T const& value) { return emplace_back_stable(value); }
+    constexpr T& push_back_stable(T const& value) { return this->emplace_back_stable(value); }
 
     /// Move-constructs a new element at the back using existing capacity.
     /// Requires `has_capacity_back_for(1)` to be true; caller must ensure capacity in advance.
     /// No allocation occurs; pointers, references, and iterators remain valid (stable operation).
     /// Strong exception safety; O(1) complexity.
     /// Low-level primitive for performance-critical or reference-sensitive code.
-    constexpr T& push_back_stable(T&& value) { return emplace_back_stable(cc::move(value)); }
+    constexpr T& push_back_stable(T&& value) { return this->emplace_back_stable(cc::move(value)); }
 
     /// Constructs a new element at the front using existing capacity.
     /// Requires `has_capacity_front_for(1)` to be true; caller must ensure capacity in advance.
@@ -664,7 +659,7 @@ public:
         static_assert(
             requires { T(cc::forward<Args>(args)...); }, "emplace_front_stable: T is not constructible from "
                                                          "the provided argument types");
-        CC_ASSERT(has_capacity_front_for(1), "not enough capacity for emplace_front_stable");
+        CC_ASSERT(this->has_capacity_front_for(1), "not enough capacity for emplace_front_stable");
         auto const p = new (cc::placement_new, _data.obj_start - 1) T(cc::forward<Args>(args)...);
         _data.obj_start--; // _after_ so exceptions in T(...) leave the state valid
         return *p;
@@ -675,14 +670,14 @@ public:
     /// No allocation occurs; pointers, references, and iterators remain valid (stable operation).
     /// Strong exception safety; O(1) complexity.
     /// Low-level primitive for performance-critical or reference-sensitive code.
-    constexpr T& push_front_stable(T const& value) { return emplace_front_stable(value); }
+    constexpr T& push_front_stable(T const& value) { return this->emplace_front_stable(value); }
 
     /// Move-constructs a new element at the front using existing capacity.
     /// Requires `has_capacity_front_for(1)` to be true; caller must ensure capacity in advance.
     /// No allocation occurs; pointers, references, and iterators remain valid (stable operation).
     /// Strong exception safety; O(1) complexity.
     /// Low-level primitive for performance-critical or reference-sensitive code.
-    constexpr T& push_front_stable(T&& value) { return emplace_front_stable(cc::move(value)); }
+    constexpr T& push_front_stable(T&& value) { return this->emplace_front_stable(cc::move(value)); }
 
     /// Appends a new element to the back, allocating if necessary.
     /// If has_capacity_back_for(1) is true, no invalidation of any kind occurs.
@@ -698,25 +693,25 @@ public:
         allocation<T> new_allocation;
         auto p_obj_end = &_data.obj_end;
 
-        if (!has_capacity_back_for(1)) [[unlikely]]
-            p_obj_end = ensure_capacity_back_begin(new_allocation, 1);
+        if (!this->has_capacity_back_for(1)) [[unlikely]]
+            p_obj_end = this->ensure_capacity_back_begin(new_allocation, 1);
 
         auto const p = new (cc::placement_new, *p_obj_end) T(cc::forward<Args>(args)...);
         (*p_obj_end)++; // _after_ so exceptions in T(...) leave state valid
 
         if (new_allocation.is_valid()) [[unlikely]]
-            ensure_capacity_back_finalize(new_allocation);
+            this->ensure_capacity_back_finalize(new_allocation);
 
         return *p;
     }
 
     /// Appends a copy of the element to the back.
     /// See emplace_back for guarantees and complexity.
-    constexpr T& push_back(T const& value) { return emplace_back(value); }
+    constexpr T& push_back(T const& value) { return this->emplace_back(value); }
 
     /// Appends an element to the back via move.
     /// See emplace_back for guarantees and complexity.
-    constexpr T& push_back(T&& value) { return emplace_back(cc::move(value)); }
+    constexpr T& push_back(T&& value) { return this->emplace_back(cc::move(value)); }
 
     // TODO:
     // - emplace_front
@@ -877,7 +872,7 @@ public:
         impl::compact_move_objects_backward(gap_start, _data.obj_end - count, _data.obj_end);
 
         // Resize down, destroying the now-unneeded trailing elements
-        resize_down_to(size() - count);
+        this->resize_down_to(size() - count);
     }
 
     /// Removes a range of elements [start, end) by moving trailing elements into the gap.
@@ -889,7 +884,7 @@ public:
     constexpr void remove_from_to_unordered(isize start, isize end)
     {
         CC_ASSERT(0 <= start && start <= end && end <= size(), "range out of bounds");
-        remove_at_range_unordered(start, end - start);
+        this->remove_at_range_unordered(start, end - start);
     }
 
     /// Removes a range of elements while preserving relative order.
@@ -910,7 +905,7 @@ public:
         impl::compact_move_objects_backward(gap_start, gap_end, _data.obj_end);
 
         // Resize down, destroying the now-unneeded trailing elements
-        resize_down_to(size() - count);
+        this->resize_down_to(size() - count);
     }
 
     /// Removes a range of elements [start, end) while preserving relative order.
@@ -920,7 +915,7 @@ public:
     constexpr void remove_from_to(isize start, isize end)
     {
         CC_ASSERT(0 <= start && start <= end && end <= size(), "range out of bounds");
-        remove_at_range(start, end - start);
+        this->remove_at_range(start, end - start);
     }
 
     /// Removes all elements for which the predicate returns true.
@@ -956,7 +951,7 @@ public:
         auto const removed_count = _data.obj_end - write_pos;
 
         // Resize down, destroying trailing elements
-        resize_down_to(write_pos - _data.obj_start);
+        this->resize_down_to(write_pos - _data.obj_start);
 
         return removed_count;
     }
@@ -980,7 +975,7 @@ public:
             {
                 // Found the element to remove - compact everything after it backward and remove the trailing element
                 impl::compact_move_objects_backward(p, p + 1, _data.obj_end);
-                remove_back();
+                this->remove_back();
                 return idx;
             }
             ++p;
@@ -1010,7 +1005,7 @@ public:
             {
                 // Found the element to remove - compact everything after it backward and remove the trailing element
                 impl::compact_move_objects_backward(p, p + 1, _data.obj_end);
-                remove_back();
+                this->remove_back();
                 return idx;
             }
         }
@@ -1027,7 +1022,7 @@ public:
     constexpr isize remove_all_value(T const& value)
     {
         static_assert(requires { bool(value == value); }, "remove_all_value: T must support operator==");
-        return remove_all_where([&value](T const& elem) { return elem == value; });
+        return this->remove_all_where([&value](T const& elem) { return elem == value; });
     }
 
     /// Removes the first element that compares equal to the given value.
@@ -1037,7 +1032,7 @@ public:
     constexpr cc::optional<isize> remove_first_value(T const& value)
     {
         static_assert(requires { bool(value == value); }, "remove_first_value: T must support operator==");
-        return remove_first_where([&value](T const& elem) { return elem == value; });
+        return this->remove_first_where([&value](T const& elem) { return elem == value; });
     }
 
     /// Removes the last element that compares equal to the given value.
@@ -1047,7 +1042,7 @@ public:
     constexpr cc::optional<isize> remove_last_value(T const& value)
     {
         static_assert(requires { bool(value == value); }, "remove_last_value: T must support operator==");
-        return remove_last_where([&value](T const& elem) { return elem == value; });
+        return this->remove_last_where([&value](T const& elem) { return elem == value; });
     }
 
     /// Retains only elements for which the predicate returns true (removes elements where predicate returns false).
@@ -1083,7 +1078,7 @@ public:
         auto const removed_count = _data.obj_end - write_pos;
 
         // Resize down, destroying trailing elements
-        resize_down_to(write_pos - _data.obj_start);
+        this->resize_down_to(write_pos - _data.obj_start);
 
         return removed_count;
     }
