@@ -77,6 +77,13 @@ void to_debug_string_append_tuple(string& s, T const& v, debug_string_config con
 template <class T>
 [[nodiscard]] string to_debug_string(T const& v, debug_string_config const& cfg)
 {
+    // nullptr to string is basically an error
+    if constexpr (requires { bool(v == nullptr); })
+    {
+        if (v == nullptr)
+            return "<nullptr>";
+    }
+
     if constexpr (requires { cc::string_view(v); })
     {
         // TODO: better capacity

@@ -579,10 +579,20 @@ public:
 
     // comparisons
 public:
-    /// Compares this string with a string_view for equality.
+    /// Compares this string with any type convertible to string_view for equality.
     /// Returns true if both have the same size and content.
     /// Complexity: O(size()).
-    [[nodiscard]] bool operator==(string_view rhs) const { return string_view(*this) == rhs; }
+    template <class S>
+    [[nodiscard]] bool operator==(S&& rhs) const
+        requires std::convertible_to<S, string_view>
+    {
+        return string_view(*this) == string_view(cc::forward<S>(rhs));
+    }
+
+    /// Compares this string with another string for equality.
+    /// Returns true if both have the same size and content.
+    /// Complexity: O(size()).
+    [[nodiscard]] bool operator==(string const& rhs) const { return string_view(*this) == string_view(rhs); }
 
     /// Checks if this string starts with the given prefix.
     /// Returns true if the string begins with the prefix.

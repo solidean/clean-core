@@ -14,6 +14,8 @@
 // Helper types for testing dispatch priorities
 // =========================================================================================================
 
+namespace
+{
 // Type with both ADL to_string AND iterability
 struct HasAdlAndIterable
 {
@@ -63,6 +65,7 @@ struct CustomStringable
     int value;
     cc::string to_string() const { return cc::to_string(value) + "_custom"; }
 };
+} // namespace
 
 // =========================================================================================================
 // ADL and member dispatch priority tests
