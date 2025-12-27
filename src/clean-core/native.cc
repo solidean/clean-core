@@ -3,6 +3,9 @@
 #include <clean-core/macros.hh>
 #include <clean-core/string.hh>
 
+#include <mutex>
+
+
 // Platform-specific includes for symbol demangling
 #ifdef CC_COMPILER_MSVC
 #include <DbgHelp.h>
@@ -22,6 +25,12 @@
 
 cc::string cc::demangle_symbol(cc::string_view symbol)
 {
+    // Static mutex to protect thread-unsafe demangling functions
+    // UnDecorateSymbolName (Windows) is documented as single-threaded
+    // __cxa_demangle (POSIX) thread-safety is not guaranteed
+    static std::mutex demangle_mutex;
+    std::lock_guard<std::mutex> lock(demangle_mutex);
+
 #ifdef CC_COMPILER_MSVC
     // MSVC implementation using UnDecorateSymbolName
     // Allocate buffer for demangled name (MSVC symbols are typically < 4KB)
@@ -32,6 +41,7 @@ cc::string cc::demangle_symbol(cc::string_view symbol)
     // Create a temporary null-terminated copy of the symbol
     cc::string symbol_nt = cc::string::create_copy_c_str_materialized(symbol);
     char const* nt_ptr = symbol_nt.c_str_if_terminated();
+    CC_ASSERT(nt_ptr != nullptr, "should always succeed");
 
     DWORD result = UnDecorateSymbolName(nt_ptr,          // Decorated name
                                         buffer,          // Output buffer
@@ -55,6 +65,7 @@ cc::string cc::demangle_symbol(cc::string_view symbol)
     // __cxa_demangle expects a null-terminated string
     cc::string symbol_nt = cc::string::create_copy_c_str_materialized(symbol);
     char const* nt_ptr = symbol_nt.c_str_if_terminated();
+    CC_ASSERT(nt_ptr != nullptr, "should always succeed");
 
     int status = 0;
     char* demangled = abi::__cxa_demangle(nt_ptr, nullptr, nullptr, &status);
