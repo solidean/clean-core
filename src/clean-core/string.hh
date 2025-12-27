@@ -7,86 +7,24 @@
 
 #include <cstring>
 
-// cc::string design (SSO + heap via cc::allocation<char>)
-//
-// - Goals:
-//   - Owning UTF-8 byte string optimized for the common small/medium case.
-//   - Keep the generic contiguous-container substrate (cc::allocation / allocating_container) free of SSO complexity.
-//   - Preserve allocator choice ("custom_resource is sticky") across all operations, including shrink into SSO.
-//   - Make C interop explicit and temporary (no persistent '\0' invariant).
-//
-// - Representation:
-//   - Union of three views over 48 bytes:
-//     - data_small: 39 inline bytes + u8 size + tagged memory_resource* (low bit = 1 => small mode).
-//     - data_heap : heap mode using cc::allocation<char> mechanics (through a thin wrapper / delegation).
-//     - data_blocks: u64[6] for efficient copy/move of the raw 48-byte payload.
-//   - In small mode, custom_resource pointer is stored with bit0 set; mask bit0 to recover real resource pointer
-//     (nullptr still means cc::default_memory_resource).
-//
-// - Mode semantics:
-//   - is_small() determined solely via (custom_resource & 1).
-//   - Small mode stores only size + bytes; no obj_start/obj_end invariants are promised to allocating_container.
-//   - Heap mode stores a fully valid allocation<char> live window and is the only mode exposed to allocating_container.
-//
-// - API / invariants:
-//   - size() counts bytes, not codepoints; embedded '\0' allowed.
-//   - data() returns contiguous bytes; mutating ops may invalidate pointers/references like std::string.
-//   - No guaranteed '\0' terminator. Provide c_str_* API that materializes '\0' at obj_end on demand.
-//     - c_str_materialize(): may allocate (or transition to heap) and writes '\0' past the logical end.
-//     - Lifetime: valid until the next non-const operation (document as "immediately use for FFI").
-//
-// - Performance tradeoffs:
-//   - Optimize for few allocations and good locality (SSO up to 39 bytes).
-//   - Accept minor branchiness in accessors; last-5%-perf users should prefer string_view/span/SIMD pipelines.
-//   - Keep heavy paths out-of-line in .cc (heap growth/realloc/large inserts/search), keep SSO fast paths inline.
-//
-// - Implementation TODOs (high-level):
-//   - Helpers:
-//     - add_small_tag(mr*), remove_small_tag(mr*), is_small(), resource() (returns untagged pointer, nullptr => default).
-//     - small_size(), small_data_ptr(), set_small_size(), (optional) zero_unused_small_bytes() policy.
-//   - Constructors:
-//     - default ctor: establish valid small-empty state (tagged default resource).
-//     - from string_view / cstr / range: choose small vs heap; ensure resource propagation rules.
-//   - Destruction:
-//     - if heap: destroy/free allocation; if small: no-op.
-//   - Copy/move/assign:
-//     - define semantics for allocator propagation (copy keeps source resource? move preserves resource?).
-//     - implement via blocks copy for small; heap uses allocation move/copy routines.
-//   - Transition:
-//     - materialize_heap(min_back_capacity, min_front_capacity=0): allocate + memcpy small bytes; flip mode.
-//     - shrink_to_small_if_possible(): optional; only if resource must remain sticky (tagged) and fits in 39.
-//   - Mutating ops:
-//     - append/prepend/push_back/push_front with small fast paths (stay small if possible).
-//     - insert/erase/replace with correct memmove semantics; ensure size updates are consistent.
-//     - directional reserve helpers for heap mode (reserve_back/front) if supporting double-ended behavior.
-//   - C interop:
-//     - c_str_materialize(): for small, if size < 39 write '\0' into spare byte. otherwise materialize heap.
-//       no-op if trailing byte is aready zero (even if that's a byte of custom_resource)
-//   - Comparisons / hashing:
-//     - implement byte-counted compare (memcmp on [data, data+size]).
-//     - unused tail bytes are ignored (would be brittle to keep consistent with heap mode).
-//   - Header/.cc split:
-//     - inline: mode checks + small fast paths + trivial accessors.
-//     - out-of-line: heap allocation/growth, large algorithms, anything that pulls heavy headers.
-//   - Debug/validation (optional):
-//     - assert canonical pointer tagging, size bounds, and heap allocation invariants in debug builds.
-//     - poison/clear unused bytes if relying on block-wise operations.
-//
-// - Non-goals (explicit):
-//   - Full Unicode semantics (graphemes/codepoints); provide cc::text/text_view later for heavyweight UTF-8 handling.
-//   - Persistent '\0' invariants or implicit C-string lifetime guarantees.
-//
-// Note: cc::string does NOT maintain a persistent '\0' terminator.
-//
-// Rationale:
-// - In a size-aware C++ string, a permanent terminator provides no benefit to in-ecosystem code
-//   and imposes constant bookkeeping, extra writes, and awkward capacity semantics.
-// - Null termination is only required at explicit C/FFI boundaries, which are expected to be
-//   thin, wrapped, and short-lived.
-// - Instead, cc::string materializes a '\0' on demand via c_str_* APIs, with no lifetime
-//   guarantees beyond the immediate call site.
-// - This keeps the core string model minimal and predictable, and makes C interop an explicit
-//   boundary operation rather than a global invariant.
+/// Owning UTF-8 byte string with small-string optimization (SSO).
+/// Stores up to 39 bytes inline without allocation; longer strings use heap storage via cc::allocation<char>.
+/// size() counts bytes, not codepoints; embedded '\0' bytes are allowed.
+/// data() returns contiguous bytes but is NOT null-terminated.
+///
+/// C interop requires explicit materialization:
+/// Use c_str_materialize() to obtain a temporary '\0'-terminated pointer valid only until the next mutation.
+/// This design avoids the overhead of maintaining a persistent terminator for all operations.
+///
+/// Memory resource choice ("custom_resource is sticky") is preserved across all operations, including transitions between SSO and heap.
+/// Mutating operations may invalidate pointers and references, as with std::string.
+///
+/// Performance characteristics:
+/// SSO fast paths (≤39 bytes) avoid allocation and branch on size checks.
+/// For data-intensive or SIMD-heavy workloads, prefer string_view/span over repeated string operations.
+///
+/// Non-goal: Full Unicode semantics (grapheme clusters, codepoint iteration).
+/// For heavyweight UTF-8 processing, use cc::text/text_view (planned).
 struct cc::string
 {
     // constants

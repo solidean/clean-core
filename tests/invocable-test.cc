@@ -226,6 +226,9 @@ TEST("invoke - member function pointer on smart pointer")
 {
     SECTION("unique_ptr")
     {
+        static_assert(cc::is_invocable<decltype(&S::f), std::unique_ptr<S>&, int>);
+        static_assert(cc::is_invocable_r<int, decltype(&S::f), std::unique_ptr<S>&, int>);
+
         auto up = std::make_unique<S>();
         up->value = 30;
 
@@ -236,6 +239,9 @@ TEST("invoke - member function pointer on smart pointer")
 
     SECTION("shared_ptr")
     {
+        static_assert(cc::is_invocable<decltype(&S::f), std::shared_ptr<S>&, int>);
+        static_assert(cc::is_invocable_r<int, decltype(&S::f), std::shared_ptr<S>&, int>);
+
         auto sp = std::make_shared<S>();
         sp->value = 100;
 

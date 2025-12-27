@@ -624,7 +624,7 @@ consteval bool is_invocable_r_impl()
     }
     else
     {
-        using Ret = decltype(invoke(std::declval<F>(), std::declval<Args>()...));
+        using Ret = decltype(cc::invoke(std::declval<F>(), std::declval<Args>()...));
         return std::is_convertible_v<Ret, R>;
     }
 }
