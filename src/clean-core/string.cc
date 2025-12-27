@@ -10,6 +10,10 @@ void cc::string::initialize_heap_from_data(char const* str, isize const len, mem
     // Construct data_heap in place using placement new
     new (cc::placement_new, &_data.heap) data_heap();
 
+    // Don't alloc for zero length
+    if (len == 0)
+        return;
+
     // Allocate storage aligned to cache line boundary
     auto const byte_size = cc::align_up(len, data_heap::alloc_alignment);
     auto alloc = cc::allocation<char>::create_empty_bytes(byte_size, byte_size, data_heap::alloc_alignment, resource);

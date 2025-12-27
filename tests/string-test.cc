@@ -231,6 +231,83 @@ TEST("string - factory methods")
             s[i] = 'b';
         CHECK(s[0] == 'b');
     }
+
+    SECTION("create_with_capacity - SSO capacity")
+    {
+        auto s = cc::string::create_with_capacity(20);
+        CHECK(s.empty());
+        CHECK(s.size() == 0);
+        // Should be in SSO mode since 20 <= 39
+        s.append(cc::string_view{"test"});
+        CHECK(s == cc::string_view{"test"});
+    }
+
+    SECTION("create_with_capacity - at SSO boundary")
+    {
+        auto s = cc::string::create_with_capacity(39);
+        CHECK(s.empty());
+        CHECK(s.size() == 0);
+        // Should still be in SSO mode
+        s.append(cc::string::create_filled('x', 39));
+        CHECK(s.size() == 39);
+    }
+
+    SECTION("create_with_capacity - heap capacity")
+    {
+        auto s = cc::string::create_with_capacity(100);
+        CHECK(s.empty());
+        CHECK(s.size() == 0);
+        // Should be in heap mode
+        // Note: capacity may be >= 100 due to cacheline alignment
+        s.append(cc::string_view{"hello world"});
+        CHECK(s == cc::string_view{"hello world"});
+    }
+
+    SECTION("create_with_capacity - zero capacity")
+    {
+        auto s = cc::string::create_with_capacity(0);
+        CHECK(s.empty());
+        CHECK(s.size() == 0);
+    }
+
+    SECTION("create_copy_c_str_materialized - small string")
+    {
+        auto s = cc::string::create_copy_c_str_materialized(cc::string_view{"hello"});
+        CHECK(s.size() == 5);
+        CHECK(s == cc::string_view{"hello"});
+        // Should have null terminator already materialized
+        CHECK(s.data()[5] == '\0');
+        CHECK(std::strcmp(s.data(), "hello") == 0);
+    }
+
+    SECTION("create_copy_c_str_materialized - empty string")
+    {
+        auto s = cc::string::create_copy_c_str_materialized(cc::string_view{});
+        CHECK(s.empty());
+        CHECK(s.size() == 0);
+        CHECK(s.data()[0] == '\0');
+    }
+
+    SECTION("create_copy_c_str_materialized - large string")
+    {
+        auto const sv = cc::string_view{"this is a very long string that exceeds SSO capacity for sure"};
+        auto s = cc::string::create_copy_c_str_materialized(sv);
+        CHECK(s.size() == sv.size());
+        CHECK(s == sv);
+        // Should have null terminator already materialized
+        CHECK(s.data()[sv.size()] == '\0');
+        CHECK(std::strcmp(s.data(), "this is a very long string that exceeds SSO capacity for sure") == 0);
+    }
+
+    SECTION("create_copy_c_str_materialized - at SSO boundary")
+    {
+        auto const sv = cc::string_view{"123456789012345678901234567890123456789"}; // 39 bytes
+        auto s = cc::string::create_copy_c_str_materialized(sv);
+        CHECK(s.size() == 39);
+        CHECK(s == sv);
+        // Should have null terminator
+        CHECK(s.data()[39] == '\0');
+    }
 }
 
 TEST("string - copy semantics")

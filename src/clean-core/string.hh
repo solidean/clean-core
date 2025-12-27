@@ -16,8 +16,8 @@
 /// Use c_str_materialize() to obtain a temporary '\0'-terminated pointer valid only until the next mutation.
 /// This design avoids the overhead of maintaining a persistent terminator for all operations.
 ///
-/// Memory resource choice ("custom_resource is sticky") is preserved across all operations, including transitions between SSO and heap.
-/// Mutating operations may invalidate pointers and references, as with std::string.
+/// Memory resource choice ("custom_resource is sticky") is preserved across all operations, including transitions
+/// between SSO and heap. Mutating operations may invalidate pointers and references, as with std::string.
 ///
 /// Performance characteristics:
 /// SSO fast paths (≤39 bytes) avoid allocation and branch on size checks.
@@ -108,6 +108,52 @@ public:
         // Force heap mode by constructing data_heap from allocation
         new (&result._data.heap) data_heap();
         result._data.heap._data = cc::move(data);
+        return result;
+    }
+
+    /// Creates an empty string with pre-allocated capacity.
+    /// If capacity <= 39, uses SSO mode (no allocation).
+    /// Otherwise, allocates heap storage with the specified capacity from the memory resource.
+    /// The string is initially empty (size() == 0), but can grow up to capacity without reallocation.
+    /// Complexity: O(1). (allocation only, no initialization).
+    [[nodiscard]] static string create_with_capacity(isize capacity, memory_resource const* resource = nullptr)
+    {
+        CC_ASSERT(capacity >= 0, "capacity must be non-negative");
+
+        string result;
+        if (capacity <= small_capacity)
+        {
+            result.initialize_small_empty(resource);
+        }
+        else
+        {
+            result.initialize_heap_from_data("", 0, resource);
+            result._data.heap.reserve_back(capacity);
+        }
+        return result;
+    }
+
+    /// Creates a null-terminated copy of a string_view.
+    /// Allocates capacity for size + 1, copies the source, and writes a terminating '\0'.
+    /// The '\0' is written to storage but NOT included in size().
+    /// This is semantically equivalent to calling create_copy_of followed by c_str_materialize,
+    /// but more efficient as it pre-allocates the terminator space.
+    /// Use this when you know you'll need a null-terminated string for C interop.
+    /// Guarantees that c_str_if_terminated() will return a valid pointer (not nullptr).
+    /// Complexity: O(source.size()).
+    [[nodiscard]] static string create_copy_c_str_materialized(string_view source,
+                                                               memory_resource const* resource = nullptr)
+    {
+        auto result = create_with_capacity(source.size() + 1, resource);
+
+        if (result.is_small())
+            result._data.small.size = static_cast<u8>(source.size());
+        else
+            result._data.heap._data.obj_end = result._data.heap._data.obj_start + source.size();
+
+        std::memcpy(result.data(), source.data(), source.size());
+        result.data()[source.size()] = '\0';
+
         return result;
     }
 
@@ -403,6 +449,41 @@ public:
             _data.heap.data()[_data.heap.size()] = '\0';
             return _data.heap.data();
         }
+    }
+
+    /// Returns a C string pointer if already null-terminated, nullptr otherwise.
+    /// This is a const inspection that does NOT modify the string.
+    /// Checks if capacity > size and if the byte at position size() is already '\0'.
+    ///
+    /// Strings created with create_copy_c_str_materialized() are guaranteed to succeed.
+    ///
+    /// IMPORTANT: The returned pointer is only valid until the next non-const operation.
+    ///
+    /// Usage pattern: Optimistically check before materializing to avoid allocation.
+    /// Most effective with const strings, where materialization requires a copy.
+    /// Example:
+    ///   if (auto* cstr = str.c_str_if_terminated())
+    ///       some_c_function(cstr);
+    ///   else
+    ///       some_c_function(string::create_copy_c_str_materialized(str).c_str_if_terminated());
+    ///
+    /// Complexity: O(1).
+    [[nodiscard]] char const* c_str_if_terminated() const
+    {
+        if (is_small()) [[likely]]
+        {
+            if (_data.small.size < small_capacity && //
+                _data.small.data[_data.small.size] == '\0')
+                return _data.small.data;
+        }
+        else
+        {
+            if ((cc::byte const*)_data.heap._data.obj_end < _data.heap._data.alloc_end && //
+                *_data.heap._data.obj_end == '\0')
+                return _data.heap.data();
+        }
+
+        return nullptr;
     }
 
     // mutating operations

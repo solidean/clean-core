@@ -126,6 +126,44 @@ Do not update it for one-off style decisions.
 
 ---
 
+## 9. Code Structure
+
+**Repository organization:**
+
+* **Headers:** `src/clean-core/*.hh` — All public and internal headers colocated with sources
+* **Sources:** `src/clean-core/*.cc` — Implementation files for non-inlined functions
+* **Tests:** `tests/*.cc` — Test files using the nexus framework
+* **Root CMakeLists.txt:** All new files must be explicitly added to the CMakeLists.txt in the project root
+
+**Critical requirement:**
+
+When adding new headers, sources, or tests, you **must** explicitly register them in the root `CMakeLists.txt`.
+This project does not use globbing—all files are listed explicitly for build reproducibility and clarity.
+
+**Typical workflow when adding a feature:**
+
+1. Create header in `src/clean-core/feature.hh`
+2. Create source in `src/clean-core/feature.cc` (if needed for non-inlined code)
+3. Create test in `tests/feature.cc`
+4. Add all three to `CMakeLists.txt` in their respective sections
+
+**Example additions to CMakeLists.txt:**
+
+```cmake
+# In the headers section:
+src/clean-core/feature.hh
+
+# In the sources section (if applicable):
+src/clean-core/feature.cc
+
+# In the tests section:
+tests/feature.cc
+```
+
+Do not assume files will be discovered automatically.
+
+---
+
 ### Mental model
 
 Act like a senior contributor who:
