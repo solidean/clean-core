@@ -9,6 +9,7 @@ add_library(clean-core
     src/clean-core/allocation.cc
     src/clean-core/assert.cc
     src/clean-core/dummy.cc
+    src/clean-core/node_allocation.cc
     src/clean-core/to_string.cc
     src/clean-core/string.cc
     src/clean-core/string_view.cc
@@ -30,6 +31,7 @@ target_sources(clean-core
     src/clean-core/assert.hh
     src/clean-core/assertf.hh
     src/clean-core/assert-handler.hh
+    src/clean-core/bit.hh
     src/clean-core/bitset.hh
     src/clean-core/char_predicates.hh
     src/clean-core/disjoint_set.hh
@@ -40,6 +42,7 @@ target_sources(clean-core
     src/clean-core/macros.hh
     src/clean-core/map.hh
     src/clean-core/mutex.hh
+    src/clean-core/node_allocation.hh
     src/clean-core/optional.hh
     src/clean-core/pair.hh
     src/clean-core/result.hh
@@ -103,6 +106,7 @@ add_executable(clean-core-test
     tests/main.cc
     tests/array-test.cc
     tests/assert-test.cc
+    tests/bit-test.cc
     tests/fixed-array-test.cc
     tests/function_ref-test.cc
     tests/invocable-test.cc

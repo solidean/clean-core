@@ -3,8 +3,7 @@
 #include <cstddef>
 #include <cstdint>
 
-
-namespace cc
+namespace cc::primitive_defines
 {
 
 //
@@ -55,6 +54,12 @@ using isize = i64;
 
 // pointer
 using nullptr_t = std::nullptr_t;
+} // namespace cc::primitive_defines
+
+namespace cc
+{
+
+using namespace cc::primitive_defines;
 
 //
 // Memory
@@ -63,6 +68,11 @@ using nullptr_t = std::nullptr_t;
 struct memory_resource;
 template <class T>
 struct allocation;
+
+struct node_memory_resource;
+template <class T>
+struct node_allocation;
+
 
 //
 // Strings
@@ -84,6 +94,7 @@ template <class T>
 struct strided_iterator;
 template <class T>
 struct strided_span;
+
 
 //
 // Container
@@ -139,6 +150,7 @@ struct bitset;
 template <isize N>
 struct fixed_bitset;
 
+
 //
 // Functions
 //
@@ -148,6 +160,7 @@ struct function_ref;
 template <class T>
 struct unique_function;
 
+
 //
 // Error Handling
 //
@@ -155,12 +168,14 @@ struct unique_function;
 template <class T, class E>
 struct result;
 
+
 //
 // Concurrency
 //
 
 template <class T>
 struct mutex;
+
 
 //
 // Utilities
