@@ -25,31 +25,32 @@ public:
     unique_function() = default;
 
     // note: this ctor requires moveability
-    //       use the factory method for in-place construction
+    //       use the factory method for in-place construction or custom alloc
+    //       always uses the system node resource
     template <class F>
         requires(!std::is_same_v<std::remove_cvref_t<F>, unique_function>)
-    unique_function(F&& f, cc::node_memory_resource* custom_resource = nullptr)
+    unique_function(F&& f)
     {
         using Fn = std::remove_cvref_t<F>;
 
         // Future: check if we want this as requires or not
         static_assert(cc::is_invocable_r<R, Fn&, Args...>, "F must be callable with Args... and return R");
         static_assert(std::is_constructible_v<Fn, F>, "cannot copy/move into the unique_function. try direct "
-                                                      "construction via create_with.");
+                                                      "construction via create_from.");
 
         // NOLINTBEGIN
-        _payload = cc::node_allocation<Fn>::create_from(custom_resource, cc::forward<F>(f));
+        _payload = cc::node_allocation<Fn>::create_from(cc::default_node_allocator(), cc::forward<F>(f));
         _thunk = [](void* p, Args... args) -> R { return cc::invoke(*static_cast<Fn*>(p), cc::forward<Args>(args)...); };
         // NOLINTEND
     }
 
-    // nullptr custom resource is fine
+    // takes an explicit allocator
     // directly emplaces in target storage
     template <class F, class... FArgs>
-    [[nodiscard]] static unique_function create_with(cc::node_memory_resource* custom_resource, FArgs&&... args)
+    [[nodiscard]] static unique_function create_from(cc::node_allocator& alloc, FArgs&&... args)
     {
         unique_function uf;
-        uf._payload = cc::node_allocation<F>::create_from(custom_resource, cc::forward<FArgs>(args)...);
+        uf._payload = cc::node_allocation<F>::create_from(alloc, cc::forward<FArgs>(args)...);
         uf._thunk
             = [](void* p, Args... args) -> R { return cc::invoke(*static_cast<F*>(p), cc::forward<Args>(args)...); };
         return uf;

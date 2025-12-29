@@ -154,7 +154,7 @@ TEST("unique_function - create_with for pinned types")
 {
     SECTION("pinned counter constructed in-place")
     {
-        auto f = cc::unique_function<int()>::create_with<PinnedCounter>(nullptr);
+        auto f = cc::unique_function<int()>::create_from<PinnedCounter>(cc::default_node_allocator());
 
         CHECK(f.is_valid());
         CHECK(f() == 1);
@@ -164,7 +164,7 @@ TEST("unique_function - create_with for pinned types")
 
     SECTION("in-place construction with arguments")
     {
-        auto f = cc::unique_function<int(int)>::create_with<MoveOnlyAdder>(nullptr, 50);
+        auto f = cc::unique_function<int(int)>::create_from<MoveOnlyAdder>(cc::default_node_allocator(), 50);
 
         CHECK(f.is_valid());
         CHECK(f(5) == 55);
@@ -628,7 +628,7 @@ TEST("unique_function - stateful functor")
 
     SECTION("pinned counter via create_with")
     {
-        auto f = cc::unique_function<int()>::create_with<PinnedCounter>(nullptr);
+        auto f = cc::unique_function<int()>::create_from<PinnedCounter>(cc::default_node_allocator());
 
         CHECK(f() == 1);
         CHECK(f() == 2);
@@ -674,7 +674,7 @@ TEST("unique_function - nullptr allocator works")
     SECTION("construct with nullptr allocator")
     {
         auto lambda = [](int x) { return x * 2; };
-        auto f = cc::unique_function<int(int)>(cc::move(lambda), nullptr);
+        auto f = cc::unique_function<int(int)>(cc::move(lambda));
 
         CHECK(f.is_valid());
         CHECK(f(5) == 10);
@@ -682,7 +682,7 @@ TEST("unique_function - nullptr allocator works")
 
     SECTION("create_with with nullptr allocator")
     {
-        auto f = cc::unique_function<int()>::create_with<PinnedCounter>(nullptr);
+        auto f = cc::unique_function<int()>::create_from<PinnedCounter>(cc::default_node_allocator());
 
         CHECK(f.is_valid());
         CHECK(f() == 1);

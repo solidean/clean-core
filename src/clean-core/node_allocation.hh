@@ -109,6 +109,11 @@ template <class T>
     return base + (slot_index << u64(idx));
 }
 
+/// Cold path for freeing large nodes (> small_max).
+/// Called by node_allocation_free when idx > small_max.
+/// Delegates to the resource's deallocate_node_bytes_large function pointer.
+CC_COLD_FUNC void node_allocation_free_large(cc::byte* ptr, node_class_index idx);
+
 /// Free a node by returning its slot to the slab's free bitmap.
 /// Requires only the pointer and class index; no allocator state or resource reference needed.
 /// Implemented as a single atomic_or into the slab's free bitmap; wait-free and callable from any thread.
@@ -120,12 +125,16 @@ template <class T>
 /// without requiring the freeing thread to have any reference to or knowledge of the allocating resource.
 CC_FORCE_INLINE void node_allocation_free(cc::byte* ptr, node_class_index idx)
 {
+    // branch for large nodes
+    if (idx > node_class_index::small_max) [[unlikely]]
+    {
+        cc::node_allocation_free_large(ptr, idx);
+        return;
+    }
+
     auto const base = cc::node_slab_base_for_ptr(ptr, idx);
     auto const freemap = cc::node_slab_freemap_for_base(base);
     auto const slot_bit = u64(1) << cc::node_slot_index_for_ptr(ptr, base, idx);
-
-    // TODO: branch on large node
-    CC_ASSERT(idx <= node_class_index::small_max, "TODO: implement large-node-alloc");
 
     CC_ASSERT((*freemap & slot_bit) == 0, "node is already freed. double-delete or corruption?");
     cc::atomic_or(*freemap, slot_bit);
@@ -147,18 +156,38 @@ extern cc::node_memory_resource* const default_node_memory_resource;
 struct cc::node_allocator
 {
 public:
+    struct slab_info
+    {
+        // base pointers to a slab for each class
+        // is lazy-initialized (can be nullptr) via a slow path
+        // concrete node memory resources can decide to only support certain classes (but the default one supports all)
+        // the slabs here are not guaranteed to have free slots
+        // because we want to keep the happy path fast (and there could be frees until the next alloc)
+        cc::byte* slab_base[isize(node_class_index::small_count)] = {};
+    };
+
+    // ctors
+    node_allocator() = default;
+    explicit node_allocator(node_memory_resource* resource) : _resource(resource) {}
+
+    // accessors
+    [[nodiscard]] slab_info& slabs() { return _slabs; }
+    [[nodiscard]] slab_info const& slabs() const { return _slabs; }
+
+public:
     // allocates a new node from the given size class
     // must be freed via node_allocation_free and the same class index!
     // extremely efficient fast path
     // occasionally calls into a slow path to regenerate
     // NOTE: this must be inlined to make "idx" a comptime constant in most cases!
-    [[nodiscard]] CC_FORCE_INLINE cc::byte* allocate_node_bytes(node_class_index idx)
+    // size_bytes and alignment are only used for large nodes (idx > small_max) and ignored for small classes
+    [[nodiscard]] CC_FORCE_INLINE cc::byte* allocate_node_bytes(node_class_index idx, isize size_bytes, isize alignment)
     {
         // slow path for large nodes
         if (idx > node_class_index::small_max) [[unlikely]]
-            return this->allocate_node_bytes_large(idx);
+            return this->allocate_node_bytes_large(idx, size_bytes, alignment);
 
-        auto const base = _slab_base[isize(idx)];
+        auto const base = _slabs.slab_base[isize(idx)];
 
         // happy path for valid slabs with free slots
         if (base != nullptr) [[likely]]
@@ -187,80 +216,25 @@ public:
 
 private:
     // fallback when the current slab is either not allocated or doesn't have free slots
-    [[nodiscard]] cc::byte* allocate_node_bytes_non_fast(node_class_index idx)
-    {
-        if (_slab_base[isize(idx)] == nullptr) [[unlikely]]
-            initialize_slab_for(idx);
-
-        auto const start_base = _slab_base[isize(idx)];
-        CC_ASSERT(start_base != nullptr, "node class should be initialized");
-
-        // slab is initialized but full
-        // we now iterate the slab ring to find a new free slab
-        // this is still reasonably hot (it's the full node capacity for this thread without refill)
-        auto base = cc::node_slab_next_for_base(start_base);
-        while (base != start_base)
-        {
-            CC_ASSERT(base != nullptr, "the slab ring must be a cycling single-linked-list. indicates a "
-                                       "node_memory_resource bug.");
-
-            auto const a_freemap = std::atomic_ref<u64>(*cc::node_slab_freemap_for_base(base));
-            auto const freemap = a_freemap.load();
-
-            if (freemap != 0) [[likely]]
-            {
-                // record next free slab
-                _slab_base[isize(idx)] = base;
-
-                // allocate & return
-                auto const slot_idx = cc::count_trailing_zeroes(freemap);
-                auto const slot_bit = u64(1) << slot_idx;
-                // updating the freemap must happen atomically
-                // we're the only thread allocating from it
-                // BUT there can be many threads that concurrently free
-                auto const old_freemap = a_freemap.fetch_and(~slot_bit);
-                CC_ASSERT((old_freemap & slot_bit) != 0, "double-allocation detected. this indicates multiple threads "
-                                                         "allocating from the same slab");
-                return cc::node_slot_ptr_for(base, idx, slot_idx);
-            }
-
-            // advance
-            base = cc::node_slab_next_for_base(base);
-        }
-
-        // all slabs in the ring are full
-        // => we request more from the allocator
-        return this->refill_slabs_and_allocate_node_bytes(idx);
-    }
+    [[nodiscard]] cc::byte* allocate_node_bytes_non_fast(node_class_index idx);
 
     // slow path for non-small nodes
-    // TODO: implement me
-    [[nodiscard]] CC_COLD_FUNC cc::byte* allocate_node_bytes_large(node_class_index idx);
+    [[nodiscard]] CC_COLD_FUNC cc::byte* allocate_node_bytes_large(node_class_index idx, isize size_bytes, isize alignment);
 
     // called when the current slab ring is full
     // should do bookkeeping and ensure the slab ring has free capacity
     // and also allocate a node for the given size class (guaranteed to be a small class)
+    // also works when the class is not initialized yet
     // TODO: implement me
     [[nodiscard]] CC_COLD_FUNC cc::byte* refill_slabs_and_allocate_node_bytes(node_class_index idx);
 
-    // only called when a class is not initialized yet
-    // guarantees non-null base for that class afterwards
-    // TODO: implement me
-    CC_COLD_FUNC void initialize_slab_for(node_class_index idx);
-
 private:
-    // base pointers to a slab for each class
-    // is lazy-initialized (can be nullptr) via a slow path
-    // concrete node memory resources can decide to only support certain classes (but the default one supports all)
-    // the slabs here are not guaranteed to have free slots
-    // because we want to keep the happy path fast (and there could be frees until the next alloc)
-    cc::byte* _slab_base[isize(node_class_index::small_count)] = {};
+    // slab configuration
+    slab_info _slabs;
 
     // the backup resource for this allocation
     // NOTE: must be non-nullptr for a valid allocator!
     cc::node_memory_resource* _resource = nullptr;
-
-    friend node_memory_resource;
 };
 
 /// Small-node allocation system optimized for cheap thread-local allocation and wait-free deallocation.
@@ -295,11 +269,38 @@ struct cc::node_memory_resource
     // for best performance, try to reuse one allocator as much as possible
     // it is fine for a memory resource to return the same reference again on the same thread
     // this mechanism allows TLS-segregated resources but also purely local resources at the same time
-    cc::function_ptr<node_allocator&()> get_allocator = nullptr;
+    cc::function_ptr<node_allocator&(void*)> get_allocator = nullptr;
+
+    // allocates a large node (> small_max) from the resource
+    // called by node_allocator::allocate_node_bytes_large
+    // receives class index, actual size in bytes, and alignment requirement
+    // REQUIREMENT: returned ptr must be at least 8-byte aligned
+    // REQUIREMENT: ptr - 8 must contain a pointer to this resource (node_memory_resource*)
+    //              this allows node_allocation_free_large to retrieve the resource for deallocation
+    cc::function_ptr<cc::byte*(node_class_index, isize, isize, void*)> allocate_node_bytes_large = nullptr;
+
+    // refills slabs for the given size class and allocates a node from the new slab
+    // called by node_allocator::refill_slabs_and_allocate_node_bytes
+    // takes a reference to the allocator's slab_info and the class index
+    cc::function_ptr<cc::byte*(node_allocator::slab_info&, node_class_index, void*)> refill_slabs_and_allocate_node_bytes
+        = nullptr;
+
+    // deallocates a large node (> small_max) to the resource
+    // called by node_allocation_free_large
+    cc::function_ptr<void(cc::byte*, node_class_index, void*)> deallocate_node_bytes_large = nullptr;
 
     /// User-defined data for custom allocators. Can be nullptr for stateless allocators.
     void* userdata = nullptr;
 };
+
+namespace cc
+{
+/// Returns the default node allocator for the current thread.
+/// This is a convenience wrapper around default_node_memory_resource->get_allocator.
+/// The returned allocator is thread-local and must not be used across threads.
+/// For most use cases, this is the recommended way to obtain a node allocator (or take an explicit node_allocator&).
+node_allocator& default_node_allocator();
+} // namespace cc
 
 /// Move-only owning handle for a single live T stored in node memory.
 /// Stores only a T*; all information required to free the slot is derived from the pointer and sizeof/alignof(T).
@@ -325,7 +326,7 @@ public:
             requires { T(cc::forward<Args>(args)...); }, "T is not constructible from the provided argument "
                                                          "types");
 
-        auto const ptr = alloc.allocate_node_bytes(cc::node_class_index_for<T>());
+        auto const ptr = alloc.allocate_node_bytes(cc::node_class_index_for<T>(), sizeof(T), alignof(T));
 
         node_allocation n;
         n.ptr = new (cc::placement_new, ptr) T(cc::forward<Args>(args)...);
