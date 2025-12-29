@@ -49,7 +49,7 @@ public:
     /// If size <= 39, uses SSO mode (no allocation).
     /// Otherwise, allocates heap storage from the specified memory resource.
     /// Complexity: O(size).
-    [[nodiscard]] static string create_filled(char value, isize size, memory_resource const* resource = nullptr)
+    [[nodiscard]] static string create_filled(isize size, char value, memory_resource const* resource = nullptr)
     {
         CC_ASSERT(size >= 0, "string size must be non-negative");
 

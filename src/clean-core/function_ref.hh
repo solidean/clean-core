@@ -43,10 +43,8 @@ struct cc::function_ref<R(Args...)>
 {
     // internal storage
 private:
-    using thunk_t = R (*)(void*, Args...);
-
     void* _payload = nullptr;
-    thunk_t _thunk = nullptr;
+    cc::function_ptr<R(void*, Args...)> _thunk = nullptr;
 
     // construction
 public:
@@ -65,30 +63,9 @@ public:
         static_assert(cc::is_invocable_r<R, F&, Args...>, "F must be callable with Args... and return R");
 
         using Fn = std::remove_reference_t<F>;
-
-        // dispatch based on callable type
-        if constexpr (std::is_function_v<std::remove_pointer_t<F>>)
-        {
-            // function pointer
-            _thunk = [](void* p, Args... args) -> R { return (*static_cast<Fn*>(p))(cc::forward<Args>(args)...); };
-        }
-        else if constexpr (std::is_member_function_pointer_v<F>)
-        {
-            // pointer-to-member-function
-            _thunk = [](void* p, Args... args) -> R
-            { return cc::invoke(*static_cast<Fn*>(p), cc::forward<Args>(args)...); };
-        }
-        else if constexpr (std::is_member_object_pointer_v<F>)
-        {
-            // pointer-to-member-object
-            _thunk = [](void* p, Args... args) -> R
-            { return cc::invoke(*static_cast<Fn*>(p), cc::forward<Args>(args)...); };
-        }
-        else
-        {
-            // general callable (lambda/functor)
-            _thunk = [](void* p, Args... args) -> R { return (*static_cast<Fn*>(p))(cc::forward<Args>(args)...); };
-        }
+        // NOLINTBEGIN
+        _thunk = [](void* p, Args... args) -> R { return cc::invoke(*static_cast<Fn*>(p), cc::forward<Args>(args)...); };
+        // NOLINTEND
     }
 
     // copy and move (trivial, compiler-generated)

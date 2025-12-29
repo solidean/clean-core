@@ -69,9 +69,15 @@ struct memory_resource;
 template <class T>
 struct allocation;
 
+enum class node_class_index : u8;
+enum class node_class_size : u64;
 struct node_memory_resource;
+struct node_allocator;
+struct any_node_allocation;
 template <class T>
 struct node_allocation;
+template <class T, class NodeTraits>
+struct poly_node_allocation;
 
 
 //

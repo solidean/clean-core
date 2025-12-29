@@ -111,12 +111,14 @@ add_executable(clean-core-test
     tests/function_ref-test.cc
     tests/invocable-test.cc
     tests/macros-test.cc
+    tests/mutex-test.cc
     tests/optional-test.cc
     tests/span-test.cc
     tests/strided_span-test.cc
     tests/string-test.cc
     tests/string_view-test.cc
     tests/to_debug_string-test.cc
+    tests/unique_function-test.cc
     tests/utility-test.cc
     tests/vector-test.cc
 )

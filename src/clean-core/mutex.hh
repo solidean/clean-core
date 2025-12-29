@@ -88,7 +88,19 @@ struct cc::mutex
     /// Default constructor - default-constructs the protected value
     mutex() = default;
 
-    /// Construct with initial value
+    /// Construct with initial value (copy)
+    explicit mutex(T const& value) : _value(value)
+    {
+        static_assert(std::is_copy_constructible_v<T>, "T must be copy constructible");
+    }
+
+    /// Construct with initial value (move)
+    explicit mutex(T&& value) : _value(cc::move(value))
+    {
+        static_assert(std::is_move_constructible_v<T>, "T must be move constructible");
+    }
+
+    /// Construct with initial value (in-place construction)
     template <class... Args>
     explicit mutex(Args&&... args) : _value(cc::forward<Args>(args)...)
     {

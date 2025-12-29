@@ -58,7 +58,7 @@ TEST("string - SSO behavior")
 
     SECTION("SSO boundary - exactly 39 bytes")
     {
-        cc::string s = cc::string::create_filled('a', 39);
+        cc::string s = cc::string::create_filled(39, 'a');
         CHECK(s.size() == 39);
         for (cc::isize i = 0; i < 39; ++i)
         {
@@ -68,7 +68,7 @@ TEST("string - SSO behavior")
 
     SECTION("SSO boundary - exactly 40 bytes")
     {
-        cc::string s = cc::string::create_filled('b', 40);
+        cc::string s = cc::string::create_filled(40, 'b');
         CHECK(s.size() == 40);
         for (cc::isize i = 0; i < 40; ++i)
         {
@@ -188,7 +188,7 @@ TEST("string - factory methods")
 
     SECTION("create_filled - small")
     {
-        auto s = cc::string::create_filled('x', 10);
+        auto s = cc::string::create_filled(10, 'x');
         CHECK(s.size() == 10);
         for (cc::isize i = 0; i < 10; ++i)
         {
@@ -198,7 +198,7 @@ TEST("string - factory methods")
 
     SECTION("create_filled - large")
     {
-        auto s = cc::string::create_filled('y', 50);
+        auto s = cc::string::create_filled(50, 'y');
         CHECK(s.size() == 50);
         for (cc::isize i = 0; i < 50; ++i)
         {
@@ -208,7 +208,7 @@ TEST("string - factory methods")
 
     SECTION("create_filled - zero size")
     {
-        auto s = cc::string::create_filled('a', 0);
+        auto s = cc::string::create_filled(0, 'a');
         CHECK(s.empty());
     }
 
@@ -248,7 +248,7 @@ TEST("string - factory methods")
         CHECK(s.empty());
         CHECK(s.size() == 0);
         // Should still be in SSO mode
-        s.append(cc::string::create_filled('x', 39));
+        s.append(cc::string::create_filled(39, 'x'));
         CHECK(s.size() == 39);
     }
 
@@ -510,7 +510,7 @@ TEST("string - push_back")
 
     SECTION("push_back at SSO boundary")
     {
-        cc::string s = cc::string::create_filled('x', 38);
+        cc::string s = cc::string::create_filled(38, 'x');
         s.push_back('y'); // Still SSO (39 bytes)
         CHECK(s.size() == 39);
         CHECK(s[38] == 'y');
@@ -663,7 +663,7 @@ TEST("string - c_str_materialize")
 
     SECTION("c_str_materialize - SSO at capacity")
     {
-        cc::string s = cc::string::create_filled('a', 39);
+        cc::string s = cc::string::create_filled(39, 'a');
         auto const* cstr = s.c_str_materialize();
         CHECK(std::strlen(cstr) == 39);
         // After materialization, should have transitioned to heap
