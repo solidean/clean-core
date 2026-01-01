@@ -839,3 +839,442 @@ TEST("optional - subobject-safe move assignment")
         CHECK(my_opt.value().value == 123);
     }
 }
+
+TEST("optional - as_span")
+{
+    SECTION("empty optional")
+    {
+        auto const opt = cc::optional<int>{};
+        auto const s = opt.as_span();
+        CHECK(s.size() == 0);
+        CHECK(s.empty());
+    }
+
+    SECTION("optional with value")
+    {
+        auto opt = cc::optional<int>{42};
+        auto s = opt.as_span();
+        CHECK(s.size() == 1);
+        CHECK(!s.empty());
+        CHECK(s[0] == 42);
+    }
+
+    SECTION("const optional with value")
+    {
+        auto const opt = cc::optional<int>{42};
+        auto const s = opt.as_span();
+        CHECK(s.size() == 1);
+        CHECK(!s.empty());
+        CHECK(s[0] == 42);
+        static_assert(std::is_same_v<decltype(s), cc::span<int const> const>);
+    }
+
+    SECTION("mutable span allows modification")
+    {
+        auto opt = cc::optional<int>{42};
+        auto s = opt.as_span();
+        s[0] = 99;
+        CHECK(opt.value() == 99);
+    }
+
+    SECTION("non-trivial types")
+    {
+        auto opt = cc::optional<std::string>{"hello"};
+        auto s = opt.as_span();
+        CHECK(s.size() == 1);
+        CHECK(s[0] == "hello");
+        s[0] = "world";
+        CHECK(opt.value() == "world");
+    }
+
+    SECTION("empty non-trivial optional")
+    {
+        auto const opt = cc::optional<std::string>{};
+        auto const s = opt.as_span();
+        CHECK(s.size() == 0);
+        CHECK(s.empty());
+    }
+
+    SECTION("span can be used in range-for")
+    {
+        auto opt = cc::optional<int>{42};
+        int count = 0;
+        for (auto const& val : opt.as_span())
+        {
+            CHECK(val == 42);
+            ++count;
+        }
+        CHECK(count == 1);
+    }
+
+    SECTION("empty span in range-for")
+    {
+        auto const opt = cc::optional<int>{};
+        int count = 0;
+        for (auto const& val : opt.as_span())
+        {
+            (void)val;
+            ++count;
+        }
+        CHECK(count == 0);
+    }
+}
+
+TEST("optional - value_or")
+{
+    SECTION("const lvalue - has value")
+    {
+        auto const opt = cc::optional<int>{42};
+        CHECK(opt.value_or(99) == 42);
+    }
+
+    SECTION("const lvalue - empty")
+    {
+        auto const opt = cc::optional<int>{};
+        CHECK(opt.value_or(99) == 99);
+    }
+
+    SECTION("rvalue - has value")
+    {
+        auto opt = cc::optional<int>{42};
+        CHECK(cc::move(opt).value_or(99) == 42);
+    }
+
+    SECTION("rvalue - empty")
+    {
+        auto opt = cc::optional<int>{};
+        CHECK(cc::move(opt).value_or(99) == 99);
+    }
+
+    SECTION("non-trivial type - const lvalue")
+    {
+        auto const opt = cc::optional<std::string>{"hello"};
+        CHECK(opt.value_or("default") == "hello");
+    }
+
+    SECTION("non-trivial type - const lvalue empty")
+    {
+        auto const opt = cc::optional<std::string>{};
+        CHECK(opt.value_or("default") == "default");
+    }
+
+    SECTION("non-trivial type - rvalue")
+    {
+        auto opt = cc::optional<std::string>{"hello"};
+        auto result = cc::move(opt).value_or("default");
+        CHECK(result == "hello");
+    }
+
+    SECTION("non-trivial type - rvalue empty")
+    {
+        auto opt = cc::optional<std::string>{};
+        auto result = cc::move(opt).value_or("default");
+        CHECK(result == "default");
+    }
+
+    SECTION("move-only type - rvalue")
+    {
+        auto opt = cc::optional<move_only>{move_only{42}};
+        auto result = cc::move(opt).value_or(move_only{99});
+        CHECK(result.value == 42);
+    }
+
+    SECTION("move-only type - rvalue empty")
+    {
+        auto opt = cc::optional<move_only>{};
+        auto result = cc::move(opt).value_or(move_only{99});
+        CHECK(result.value == 99);
+    }
+
+    SECTION("unique_ptr - has value")
+    {
+        auto opt = cc::optional<std::unique_ptr<int>>{std::make_unique<int>(42)};
+        auto result = cc::move(opt).value_or(std::make_unique<int>(99));
+        CHECK(*result == 42);
+    }
+
+    SECTION("unique_ptr - empty")
+    {
+        auto opt = cc::optional<std::unique_ptr<int>>{};
+        auto result = cc::move(opt).value_or(std::make_unique<int>(99));
+        CHECK(*result == 99);
+    }
+
+    SECTION("type conversion")
+    {
+        auto const opt = cc::optional<int>{42};
+        CHECK(opt.value_or(99.5) == 42);
+    }
+
+    SECTION("type conversion - empty")
+    {
+        auto const opt = cc::optional<int>{};
+        CHECK(opt.value_or(99.5) == 99);
+    }
+}
+
+TEST("optional - emplace_value")
+{
+    SECTION("emplace into empty")
+    {
+        auto opt = cc::optional<int>{};
+        auto& ref = opt.emplace_value(42);
+        CHECK(opt.has_value());
+        CHECK(opt.value() == 42);
+        CHECK(&ref == &opt.value());
+    }
+
+    SECTION("emplace into existing")
+    {
+        auto opt = cc::optional<int>{99};
+        auto& ref = opt.emplace_value(42);
+        CHECK(opt.has_value());
+        CHECK(opt.value() == 42);
+        CHECK(&ref == &opt.value());
+    }
+
+    SECTION("emplace non-trivial type")
+    {
+        auto opt = cc::optional<std::string>{};
+        auto& ref = opt.emplace_value("hello");
+        CHECK(opt.has_value());
+        CHECK(opt.value() == "hello");
+        CHECK(&ref == &opt.value());
+    }
+
+    SECTION("emplace replaces existing non-trivial")
+    {
+        auto opt = cc::optional<std::string>{"old"};
+        auto& ref = opt.emplace_value("new");
+        CHECK(opt.has_value());
+        CHECK(opt.value() == "new");
+        CHECK(&ref == &opt.value());
+    }
+
+    SECTION("emplace with multiple arguments")
+    {
+        auto opt = cc::optional<std::string>{};
+        auto& ref = opt.emplace_value(5, 'x');
+        CHECK(opt.has_value());
+        CHECK(opt.value() == "xxxxx");
+        CHECK(&ref == &opt.value());
+    }
+
+    SECTION("emplace counting type - into empty")
+    {
+        counting_type::reset_counters();
+        {
+            auto opt = cc::optional<counting_type>{};
+            opt.emplace_value(42);
+            CHECK(opt.has_value());
+            CHECK(opt.value().value == 42);
+        }
+        // Should construct once (value_ctor), destruct once
+        CHECK(counting_type::value_ctor_count == 1);
+        CHECK(counting_type::dtor_count == 1);
+        CHECK(counting_type::copy_ctor_count == 0);
+        CHECK(counting_type::move_ctor_count == 0);
+    }
+
+    SECTION("emplace counting type - into existing")
+    {
+        counting_type::reset_counters();
+        {
+            auto opt = cc::optional<counting_type>{counting_type{99}};
+            counting_type::reset_counters(); // Reset to isolate emplace
+            opt.emplace_value(42);
+            CHECK(opt.has_value());
+            CHECK(opt.value().value == 42);
+        }
+        // Should destruct old value, construct new value (value_ctor), destruct new value
+        CHECK(counting_type::value_ctor_count == 1);
+        CHECK(counting_type::dtor_count == 2); // old value + final destruction
+        CHECK(counting_type::copy_ctor_count == 0);
+        CHECK(counting_type::move_ctor_count == 0);
+    }
+
+    SECTION("emplace destructor called")
+    {
+        bool destroyed = false;
+        {
+            auto opt = cc::optional<non_trivial>::create_emplaced(99, &destroyed);
+            CHECK(!destroyed);
+            opt.emplace_value(42);
+            CHECK(destroyed); // old value was destroyed
+            CHECK(opt.value().value == 42);
+        }
+    }
+
+    SECTION("emplace move-only type")
+    {
+        auto opt = cc::optional<move_only>{};
+        opt.emplace_value(42);
+        CHECK(opt.has_value());
+        CHECK(opt.value().value == 42);
+    }
+
+    SECTION("emplace returns modifiable reference")
+    {
+        auto opt = cc::optional<int>{};
+        opt.emplace_value(42) = 99;
+        CHECK(opt.value() == 99);
+    }
+}
+
+TEST("optional - map")
+{
+    SECTION("map on empty optional")
+    {
+        auto const opt = cc::optional<int>{};
+        auto result = opt.map([](int x) { return x * 2; });
+        static_assert(std::is_same_v<decltype(result), cc::optional<int>>);
+        CHECK(!result.has_value());
+    }
+
+    SECTION("map on filled optional")
+    {
+        auto const opt = cc::optional<int>{42};
+        auto result = opt.map([](int x) { return x * 2; });
+        CHECK(result.has_value());
+        CHECK(result.value() == 84);
+    }
+
+    SECTION("map with type conversion")
+    {
+        auto const opt = cc::optional<int>{42};
+        auto result = opt.map([](int x) { return std::to_string(x); });
+        static_assert(std::is_same_v<decltype(result), cc::optional<std::string>>);
+        CHECK(result.has_value());
+        CHECK(result.value() == "42");
+    }
+
+    SECTION("map empty with type conversion")
+    {
+        auto const opt = cc::optional<int>{};
+        auto result = opt.map([](int x) { return std::to_string(x); });
+        static_assert(std::is_same_v<decltype(result), cc::optional<std::string>>);
+        CHECK(!result.has_value());
+    }
+
+    SECTION("map non-trivial type")
+    {
+        auto const opt = cc::optional<std::string>{"hello"};
+        auto result = opt.map([](std::string const& s) { return s.size(); });
+        static_assert(std::is_same_v<decltype(result), cc::optional<size_t>>);
+        CHECK(result.has_value());
+        CHECK(result.value() == 5);
+    }
+
+    SECTION("map with const reference")
+    {
+        auto const opt = cc::optional<std::string>{"hello"};
+        auto result = opt.map([](std::string const& s) { return s + " world"; });
+        CHECK(result.has_value());
+        CHECK(result.value() == "hello world");
+    }
+
+    SECTION("map with mutable reference")
+    {
+        auto opt = cc::optional<std::string>{"hello"};
+        auto result = opt.map(
+            [](std::string& s)
+            {
+                s += " modified";
+                return s.size();
+            });
+        CHECK(result.has_value());
+        CHECK(result.value() == 14);
+        CHECK(opt.value() == "hello modified");
+    }
+
+    SECTION("map with rvalue reference - move")
+    {
+        auto opt = cc::optional<std::string>{"hello"};
+        auto result = cc::move(opt).map([](std::string&& s) { return s + " world"; });
+        CHECK(result.has_value());
+        CHECK(result.value() == "hello world");
+    }
+
+    SECTION("map with move-only type")
+    {
+        auto opt = cc::optional<move_only>{move_only{42}};
+        auto result = cc::move(opt).map([](move_only&& m) { return m.value * 2; });
+        static_assert(std::is_same_v<decltype(result), cc::optional<int>>);
+        CHECK(result.has_value());
+        CHECK(result.value() == 84);
+    }
+
+    SECTION("map chaining")
+    {
+        auto const opt = cc::optional<int>{5};
+        auto result = opt.map([](int x) { return x * 2; })
+                          .map([](int x) { return x + 10; })
+                          .map([](int x) { return std::to_string(x); });
+        CHECK(result.has_value());
+        CHECK(result.value() == "20");
+    }
+
+    SECTION("map chaining with empty")
+    {
+        auto const opt = cc::optional<int>{};
+        auto result = opt.map([](int x) { return x * 2; })
+                          .map([](int x) { return x + 10; })
+                          .map([](int x) { return std::to_string(x); });
+        CHECK(!result.has_value());
+    }
+
+    SECTION("map with member function pointer")
+    {
+        struct foo
+        {
+            int value;
+            int get_doubled() const { return value * 2; }
+        };
+
+        auto const opt = cc::optional<foo>{foo{42}};
+        auto result = opt.map(&foo::get_doubled);
+        CHECK(result.has_value());
+        CHECK(result.value() == 84);
+    }
+
+    SECTION("map with data member pointer")
+    {
+        struct foo
+        {
+            int value;
+        };
+
+        auto const opt = cc::optional<foo>{foo{42}};
+        auto result = opt.map(&foo::value);
+        CHECK(result.has_value());
+        CHECK(result.value() == 42);
+    }
+
+    SECTION("map returns void - results in optional<void>")
+    {
+        auto opt = cc::optional<int>{42};
+        int side_effect = 0;
+        auto result = opt.map([&](int x) { side_effect = x * 2; });
+        static_assert(std::is_same_v<decltype(result), cc::optional<cc::unit>>);
+        CHECK(result.has_value());
+        CHECK(side_effect == 84);
+    }
+
+    SECTION("map empty returns void")
+    {
+        auto opt = cc::optional<int>{};
+        int side_effect = 0;
+        auto result = opt.map([&](int x) { side_effect = x * 2; });
+        static_assert(std::is_same_v<decltype(result), cc::optional<cc::unit>>);
+        CHECK(!result.has_value());
+        CHECK(side_effect == 0);
+    }
+
+    SECTION("map preserves const correctness")
+    {
+        auto const opt = cc::optional<int>{42};
+        auto result = opt.map([](int const& x) { return x; });
+        CHECK(result.has_value());
+        CHECK(result.value() == 42);
+    }
+}

@@ -22,6 +22,8 @@
 template <class T>
 struct cc::vector : private cc::allocating_container<T, vector<T>>
 {
+    static_assert(std::is_object_v<T> && !std::is_const_v<T>, "allocations need to refer to non-const objects, not references/functions/void");
+
     using base = cc::allocating_container<T, vector<T>>;
 
     // element access

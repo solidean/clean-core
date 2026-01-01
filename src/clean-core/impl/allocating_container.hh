@@ -66,6 +66,8 @@
 template <class T, class ContainerT>
 struct cc::allocating_container
 {
+    static_assert(std::is_object_v<T> && !std::is_const_v<T>, "allocations need to refer to non-const objects, not references/functions/void");
+
     using container_t = ContainerT;
 
     /// Minimum alignment used for heap allocations of this container.

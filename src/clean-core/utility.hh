@@ -41,6 +41,7 @@
 //   is_aligned(value, alignment)     - check if aligned at boundary (power of 2)
 //
 // Callable utilities:
+//   unit                                    - empty struct for representing void as a regular value
 //   overloaded(f1, f2, ...)                 - combine multiple callables into single overload set
 //   void_function                           - callable that returns void for any arguments
 //   identify_function                       - callable that returns its argument (identity function)
@@ -48,6 +49,8 @@
 //   projection_function<I>                  - callable that returns the I-th argument
 //   invoke(f, args...)                      - invoke callable with perfect forwarding (handles member pointers)
 //   invoke_with_optional_idx(idx, f, args...) - invoke f, preferring without idx but accepts idx as first arg
+//   regular_invoke(f, args...)              - invoke callable, returning unit{} if result is void
+//   regular_invoke_with_optional_idx(idx, f, args...) - invoke with optional idx, returning unit{} if result is void
 //   is_invocable<F, Args...>                - check if F can be invoked with Args...
 //   is_invocable_r<R, F, Args...>           - check if F can be invoked with Args... and result converts to R
 //
@@ -372,6 +375,15 @@ template <class T>
 // Callable utilities
 // =========================================================================================================
 
+/// Empty struct representing void as a regular value
+/// Allows treating void-returning functions uniformly with value-returning functions
+/// Usage:
+///   cc::unit do_something() { side_effect(); return {}; }
+///   auto result = regular_invoke(f);  // returns unit{} if f returns void
+struct unit
+{
+};
+
 /// Combines multiple callables into a single overload set via variadic inheritance
 /// Each callable's operator() becomes available as an overload
 /// Usage:
@@ -658,6 +670,47 @@ constexpr decltype(auto) invoke_with_optional_idx(Idx&& idx, F&& f, Args&&... ar
     {
         static_assert(false, "cc::invoke_with_optional_idx(idx, f, args...): f is not invocable with args... nor with "
                              "(idx, args...)");
+    }
+}
+
+/// Invoke a callable with perfect forwarding, returning unit{} if the result is void
+/// Similar to cc::invoke but converts void results to unit{} for uniform handling
+/// Usage:
+///   auto r1 = cc::regular_invoke([]{ return 42; });        // r1 is int
+///   auto r2 = cc::regular_invoke([]{ side_effect(); });    // r2 is unit
+///   // Both can be used uniformly in generic code
+template <class F, class... Args>
+constexpr auto regular_invoke(F&& f, Args&&... args)
+{
+    if constexpr (std::is_void_v<decltype(cc::invoke(cc::forward<F>(f), cc::forward<Args>(args)...))>)
+    {
+        cc::invoke(cc::forward<F>(f), cc::forward<Args>(args)...);
+        return unit{};
+    }
+    else
+    {
+        return cc::invoke(cc::forward<F>(f), cc::forward<Args>(args)...);
+    }
+}
+
+/// Invoke a callable with an optional index argument, returning unit{} if the result is void
+/// Similar to cc::invoke_with_optional_idx but converts void results to unit{} for uniform handling
+/// Usage:
+///   auto f1 = [](int x) { side_effect(x); };
+///   auto f2 = [](int idx, int x) { return idx + x; };
+///   auto r1 = cc::regular_invoke_with_optional_idx(5, f1, 10);  // r1 is unit
+///   auto r2 = cc::regular_invoke_with_optional_idx(5, f2, 10);  // r2 is int
+template <class Idx, class F, class... Args>
+constexpr auto regular_invoke_with_optional_idx(Idx&& idx, F&& f, Args&&... args)
+{
+    if constexpr (std::is_void_v<decltype(cc::invoke_with_optional_idx(cc::forward<Idx>(idx), cc::forward<F>(f), cc::forward<Args>(args)...))>)
+    {
+        cc::invoke_with_optional_idx(cc::forward<Idx>(idx), cc::forward<F>(f), cc::forward<Args>(args)...);
+        return unit{};
+    }
+    else
+    {
+        return cc::invoke_with_optional_idx(cc::forward<Idx>(idx), cc::forward<F>(f), cc::forward<Args>(args)...);
     }
 }
 

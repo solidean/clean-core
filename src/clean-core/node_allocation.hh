@@ -311,6 +311,8 @@ node_allocator& default_node_allocator();
 template <class T>
 struct cc::node_allocation
 {
+    static_assert(std::is_object_v<T> && !std::is_const_v<T>, "allocations need to refer to non-const objects, not references/functions/void");
+
     // properties
 public:
     [[nodiscard]] bool is_valid() const { return ptr != nullptr; }
@@ -340,7 +342,14 @@ public:
     node_allocation(node_allocation&& rhs) noexcept : ptr(cc::exchange(rhs.ptr, nullptr)) {}
     node_allocation& operator=(node_allocation&& rhs) noexcept
     {
-        ptr = cc::exchange(rhs.ptr, nullptr);
+        // take ownership from rhs while it's definitely still alive
+        T* new_ptr = cc::exchange(rhs.ptr, nullptr);
+
+        // now release current ownership
+        reset();
+
+        // and adopt the stolen pointer
+        ptr = new_ptr;
         return *this;
     }
     node_allocation(node_allocation const&) = delete;
@@ -355,6 +364,18 @@ public:
         {
             ptr->~T();
             cc::node_allocation_free((cc::byte*)ptr, cc::node_class_index_for<T>());
+        }
+    }
+
+    /// Destroy the managed object (if any) and reset to empty state.
+    /// Safe to call on an already-empty handle.
+    void reset()
+    {
+        if (ptr != nullptr)
+        {
+            ptr->~T();
+            cc::node_allocation_free((cc::byte*)ptr, cc::node_class_index_for<T>());
+            ptr = nullptr;
         }
     }
 
@@ -393,9 +414,18 @@ public:
     }
     any_node_allocation& operator=(any_node_allocation&& rhs) noexcept
     {
-        ptr = cc::exchange(rhs.ptr, nullptr);
-        deleter = cc::exchange(rhs.deleter, nullptr);
-        class_index = rhs.class_index;
+        // take ownership from rhs while it's definitely still alive
+        void* new_ptr = cc::exchange(rhs.ptr, nullptr);
+        cc::function_ptr<void(void*)> new_deleter = cc::exchange(rhs.deleter, nullptr);
+        cc::node_class_index const new_class_index = rhs.class_index;
+
+        // now release current ownership
+        reset();
+
+        // and adopt the stolen pointer
+        ptr = new_ptr;
+        deleter = new_deleter;
+        class_index = new_class_index;
         return *this;
     }
     any_node_allocation(any_node_allocation const&) = delete;
@@ -412,6 +442,20 @@ public:
                 deleter(ptr);
 
             cc::node_allocation_free(reinterpret_cast<cc::byte*>(ptr), class_index); // NOLINT
+        }
+    }
+
+    /// Destroy the managed object (if any) and reset to empty state.
+    /// Safe to call on an already-empty handle.
+    void reset()
+    {
+        if (ptr != nullptr)
+        {
+            if (deleter)
+                deleter(ptr);
+
+            cc::node_allocation_free(reinterpret_cast<cc::byte*>(ptr), class_index); // NOLINT
+            ptr = nullptr;
         }
     }
 
@@ -449,7 +493,14 @@ public:
     poly_node_allocation(poly_node_allocation&& rhs) noexcept : ptr(cc::exchange(rhs.ptr, nullptr)) {}
     poly_node_allocation& operator=(poly_node_allocation&& rhs) noexcept
     {
-        ptr = cc::exchange(rhs.ptr, nullptr);
+        // take ownership from rhs while it's definitely still alive
+        T* new_ptr = cc::exchange(rhs.ptr, nullptr);
+
+        // now release current ownership
+        reset();
+
+        // and adopt the stolen pointer
+        ptr = new_ptr;
         return *this;
     }
     poly_node_allocation(poly_node_allocation const&) = delete;
@@ -464,6 +515,18 @@ public:
         {
             cc::node_class_index const class_idx = NodeTraits::destroy_and_get_class_index(*ptr);
             cc::node_allocation_free((cc::byte*)ptr, class_idx);
+        }
+    }
+
+    /// Destroy the managed object (if any) and reset to empty state.
+    /// Safe to call on an already-empty handle.
+    void reset()
+    {
+        if (ptr != nullptr)
+        {
+            cc::node_class_index const class_idx = NodeTraits::destroy_and_get_class_index(*ptr);
+            cc::node_allocation_free((cc::byte*)ptr, class_idx);
+            ptr = nullptr;
         }
     }
 

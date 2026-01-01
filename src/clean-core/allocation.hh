@@ -166,6 +166,8 @@ struct cc::memory_resource
 template <class T>
 struct cc::allocation
 {
+    static_assert(std::is_object_v<T> && !std::is_const_v<T>, "allocations need to refer to non-const objects, not references/functions/void");
+
     /// Pointer to the first live object.
     ///
     /// Points into the owned byte allocation. The live range is contiguous and begins here.

@@ -8,7 +8,6 @@ project(clean-core LANGUAGES CXX)
 add_library(clean-core
     src/clean-core/allocation.cc
     src/clean-core/assert.cc
-    src/clean-core/dummy.cc
     src/clean-core/node_allocation.cc
     src/clean-core/to_string.cc
     src/clean-core/string.cc
@@ -104,6 +103,7 @@ target_link_libraries(clean-core
 # Test executable
 add_executable(clean-core-test
     tests/main.cc
+    tests/allocation-test.cc
     tests/array-test.cc
     tests/assert-test.cc
     tests/bit-test.cc
@@ -112,6 +112,7 @@ add_executable(clean-core-test
     tests/invocable-test.cc
     tests/macros-test.cc
     tests/mutex-test.cc
+    tests/node_allocation-test.cc
     tests/optional-test.cc
     tests/span-test.cc
     tests/strided_span-test.cc

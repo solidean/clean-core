@@ -9,9 +9,14 @@ namespace
 {
 
 // forward declaration
-cc::byte* system_allocate_node_bytes_large(cc::node_class_index idx, cc::isize size_bytes, cc::isize alignment, void* userdata);
+cc::byte* system_allocate_node_bytes_large(cc::node_class_index idx,
+                                           cc::isize size_bytes,
+                                           cc::isize alignment,
+                                           void* userdata);
 void system_deallocate_node_bytes_large(cc::byte* ptr, cc::node_class_index idx, void* userdata);
-cc::byte* system_refill_slabs_and_allocate_node_bytes(cc::node_allocator::slab_info& slabs, cc::node_class_index idx, void* userdata);
+cc::byte* system_refill_slabs_and_allocate_node_bytes(cc::node_allocator::slab_info& slabs,
+                                                      cc::node_class_index idx,
+                                                      void* userdata);
 
 // forward declaration of the system node memory resource (defined below)
 extern cc::node_memory_resource system_node_memory_resource;
@@ -83,7 +88,9 @@ void system_deallocate_node_bytes_large(cc::byte* ptr, cc::node_class_index idx,
 /// Refills slabs for a given size class by allocating a new slab from the system memory resource.
 /// Sets up the freemap with appropriate slots forced to zero (for the header metadata).
 /// Wires the new slab into the cyclic slab list (making it the new head).
-cc::byte* system_refill_slabs_and_allocate_node_bytes(cc::node_allocator::slab_info& slabs, cc::node_class_index idx, void* userdata)
+cc::byte* system_refill_slabs_and_allocate_node_bytes(cc::node_allocator::slab_info& slabs,
+                                                      cc::node_class_index idx,
+                                                      void* userdata)
 {
     CC_UNUSED(userdata);
     // allocate a new slab from the system memory resource
@@ -114,17 +121,10 @@ cc::byte* system_refill_slabs_and_allocate_node_bytes(cc::node_allocator::slab_i
     // get reference to the slab base for this class
     cc::byte*& slab_base_ref = slabs.slab_base[cc::isize(idx)];
 
-    // wire into cyclic slab list
-    if (slab_base_ref == nullptr)
-    {
-        // first slab for this class: point to itself
-        *reinterpret_cast<cc::byte**>(new_slab + 8) = new_slab; // NOLINT
-    }
-    else
-    {
-        // insert into existing ring: new slab points to old head
-        *reinterpret_cast<cc::byte**>(new_slab + 8) = slab_base_ref; // NOLINT
-    }
+    // DEBUG: for now we simply pass out new self-cycles
+    // TODO: keep non-empty previous slabs in here as well
+    // FIXME: this is currently basically a memory leak here, but it's fine for correctness for now
+    *reinterpret_cast<cc::byte**>(new_slab + 8) = new_slab; // NOLINT
 
     // update slab base reference to point to the new slab (making it the new head)
     slab_base_ref = new_slab;

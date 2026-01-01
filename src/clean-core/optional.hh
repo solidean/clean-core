@@ -2,6 +2,7 @@
 
 #include <clean-core/assert.hh>
 #include <clean-core/fwd.hh>
+#include <clean-core/span.hh>
 #include <clean-core/utility.hh>
 
 #include <type_traits>
@@ -32,10 +33,99 @@ constexpr nullopt_t nullopt = nullopt_t{nullopt_t::_ctor_tag::tag};
 template <class T>
 struct cc::optional
 {
+    static_assert(!std::is_void_v<T>,
+                  "optional<void> is not allowed. try to use cc::regular_invoke if it comes up in generic code.");
+    static_assert(std::is_object_v<T> && !std::is_const_v<T>,
+                  "optional needs to refer to non-const objects, not references/functions/void");
+
+    // queries and access
+public:
+    /// Returns true if this optional holds a value, false if empty.
+    [[nodiscard]] constexpr bool has_value() const { return _has_value; }
+
+    /// Returns a reference to the held value, preserving the value category of the optional itself.
+    /// Precondition: has_value() == true.
+    /// Uses deducing this (C++23) to forward lvalue/rvalue/const qualifiers from the optional to T.
+    template <class Self>
+    [[nodiscard]] constexpr auto&& value(this Self&& self)
+    {
+        CC_ASSERT(self.has_value(), "attempted to access value of empty optional");
+        return static_cast<Self&&>(self)._storage.value;
+    }
+
+    /// Returns a span viewing the value if present, empty span otherwise.
+    /// Returns span<T> for non-const optionals, span<T const> for const optionals.
+    /// Span has 0 elements if empty, 1 element if value present.
+    [[nodiscard]] constexpr span<T> as_span() { return _has_value ? span<T>(&_storage.value, 1) : span<T>(); }
+    [[nodiscard]] constexpr span<T const> as_span() const
+    {
+        return _has_value ? span<T const>(&_storage.value, 1) : span<T const>();
+    }
+
+    /// Returns the contained value if present, otherwise returns fallback.
+    /// Const lvalue overload: copy-constructs the value or converts fallback.
+    /// Requires T to be copy constructible and U to be convertible to T.
+    template <class U = std::remove_cv_t<T>>
+    [[nodiscard]] constexpr T value_or(U&& fallback) const&
+    {
+        static_assert(std::is_copy_constructible_v<T>, "T must be copy constructible for value_or const&");
+        static_assert(std::is_convertible_v<U&&, T>, "fallback must be convertible to T");
+        return _has_value ? _storage.value : static_cast<T>(cc::forward<U>(fallback));
+    }
+
+    /// Returns the contained value if present, otherwise returns fallback.
+    /// Rvalue overload: move-constructs the value or converts fallback.
+    /// Requires T to be move constructible and U to be convertible to T.
+    template <class U = std::remove_cv_t<T>>
+    [[nodiscard]] constexpr T value_or(U&& fallback) &&
+    {
+        static_assert(std::is_move_constructible_v<T>, "T must be move constructible for value_or &&");
+        static_assert(std::is_convertible_v<U&&, T>, "fallback must be convertible to T");
+        return _has_value ? cc::move(_storage.value) : static_cast<T>(cc::forward<U>(fallback));
+    }
+
+    // api
+public:
+    /// Constructs the value in-place from the given arguments.
+    /// If a value already exists, destroys it first.
+    /// Returns a reference to the newly constructed value.
+    /// WARNING: args must not alias or be lifetime-bound to the current value.
+    /// The current value is always destroyed first; referencing it afterwards is UB.
+    /// Example of UB: opt.emplace_value(opt.value().member) when opt has a value.
+    template <class... Args>
+    constexpr T& emplace_value(Args&&... args)
+    {
+        static_assert(std::is_constructible_v<T, Args...>, "T must be constructible from Args...");
+
+        if (_has_value)
+            _storage.value.~T();
+
+        new (cc::placement_new, &_storage.value) T(cc::forward<Args>(args)...);
+        _has_value = true;
+        return _storage.value;
+    }
+
+    /// Transforms the optional by applying a function to the contained value.
+    /// If this optional has a value, invokes f with the value and returns optional<U> containing the result.
+    /// If this optional is empty, returns an empty optional<U>.
+    /// If f returns void, the result type is optional<unit> (allows void-returning functions).
+    /// Uses deducing this (C++23) to handle const/non-const and lvalue/rvalue cases.
+    template <class Self, class F>
+    [[nodiscard]] constexpr auto map(this Self&& self, F&& f)
+    {
+        using U
+            = std::remove_cvref_t<decltype(cc::regular_invoke(cc::forward<F>(f), static_cast<Self&&>(self)._storage.value))>;
+
+        if (self._has_value)
+            return optional<U>(cc::regular_invoke(cc::forward<F>(f), static_cast<Self&&>(self)._storage.value));
+        else
+            return optional<U>();
+    }
+
     // construction
 public:
     /// Default optional is empty: has_value() == false.
-    optional() = default;
+    constexpr optional() = default;
 
     /// Constructs an optional holding the given value; conditionally explicit.
     /// Forwarding constructor: perfect-forwards the value into internal storage.
@@ -46,7 +136,22 @@ public:
     }
 
     /// Constructs an empty optional from cc::nullopt; allows explicit empty initialization.
-    optional(nullopt_t) {}
+    constexpr optional(nullopt_t) {}
+
+    /// Static factory that creates an optional with a value emplaced from the given arguments.
+    /// Constructs the value in-place using placement new directly without intermediate copies/moves.
+    /// Returns an optional containing the newly constructed value.
+    /// Can be used to create optional<T> for immovable types (non-copyable, non-movable).
+    template <class... Args>
+    [[nodiscard]] static constexpr optional create_emplaced(Args&&... args)
+    {
+        static_assert(std::is_constructible_v<T, Args...>, "T must be constructible from Args...");
+
+        optional result;
+        new (cc::placement_new, &result._storage.value) T(cc::forward<Args>(args)...);
+        result._has_value = true;
+        return result;
+    }
 
     // trivial copy/move/destroy - defaulted when T allows bitwise operations
 public:
@@ -78,7 +183,7 @@ public:
     /// Move constructor for non-trivial T: move-constructs value, then destroys rhs and marks it empty.
     /// After this operation, rhs.has_value() == false; avoids double-destruction.
     /// noexcept assumes T's move constructor does not throw (common for move semantics).
-    optional(optional&& rhs) noexcept
+    constexpr optional(optional&& rhs) noexcept
         requires(!std::is_trivially_copyable_v<T>)
       : _has_value(rhs._has_value)
     {
@@ -92,7 +197,7 @@ public:
 
     /// Copy constructor for non-trivial T: copy-constructs value when rhs holds one.
     /// Only available when T supports copying.
-    optional(optional const& rhs)
+    constexpr optional(optional const& rhs)
         requires(!std::is_trivially_copyable_v<T> && std::is_copy_constructible_v<T>)
       : _has_value(rhs._has_value)
     {
@@ -105,7 +210,7 @@ public:
     /// When rhs is empty: destroys *this's value if present.
     /// Leaves rhs engaged with a moved-from value (matches std::optional behavior).
     /// This design makes subobject self-move safe: my_opt = cc::move(my_opt.value().sub_opt) works.
-    optional& operator=(optional&& rhs) noexcept
+    constexpr optional& operator=(optional&& rhs) noexcept
         requires(!std::is_trivially_copyable_v<T>)
     {
         if (rhs._has_value)
@@ -131,7 +236,7 @@ public:
     /// When rhs is empty: destroys *this's value if present.
     /// Includes self-assignment check to avoid unnecessary work.
     /// Only available when T supports both copy construction and copy assignment.
-    optional& operator=(optional const& rhs)
+    constexpr optional& operator=(optional const& rhs)
         requires(!std::is_trivially_copyable_v<T> && std::is_copy_constructible_v<T> && std::is_copy_assignable_v<T>)
     {
         if (this != &rhs)
@@ -156,26 +261,11 @@ public:
     }
 
     /// Destructor for non-trivial T: destroys the held value if present.
-    ~optional()
+    constexpr ~optional()
         requires(!std::is_trivially_destructible_v<T>)
     {
         if (_has_value)
             _storage.value.~T();
-    }
-
-    // queries and access
-public:
-    /// Returns true if this optional holds a value, false if empty.
-    [[nodiscard]] bool has_value() const { return _has_value; }
-
-    /// Returns a reference to the held value, preserving the value category of the optional itself.
-    /// Precondition: has_value() == true.
-    /// Uses deducing this (C++23) to forward lvalue/rvalue/const qualifiers from the optional to T.
-    template <class Self>
-    [[nodiscard]] auto&& value(this Self&& self)
-    {
-        CC_ASSERT(self.has_value(), "attempted to access value of empty optional");
-        return static_cast<Self&&>(self)._storage.value;
     }
 
     // comparison

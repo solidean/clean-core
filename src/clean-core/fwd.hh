@@ -106,10 +106,6 @@ struct strided_span;
 // Container
 //
 
-struct nullopt_t;
-template <class T>
-struct optional;
-
 template <class T, class ContainerT>
 struct allocating_container;
 
@@ -168,10 +164,17 @@ struct unique_function;
 
 
 //
-// Error Handling
+// Fallibility
 //
 
-template <class T, class E>
+struct nullopt_t;
+template <class T>
+struct optional;
+
+struct any_error;
+struct as_error_t;
+
+template <class T, class E = any_error>
 struct result;
 
 
@@ -189,5 +192,7 @@ struct mutex;
 
 template <class EnumT, isize Bits = 8 * sizeof(EnumT)>
 struct flags;
+
+struct unit;
 
 } // namespace cc
