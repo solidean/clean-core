@@ -8,8 +8,10 @@
 
 // Platform-specific includes for symbol demangling
 #ifdef CC_COMPILER_MSVC
-#include <DbgHelp.h>
 #include <Windows.h>
+
+// NOTE: must be _after_ windows.h
+#include <DbgHelp.h>
 
 // TODO: Future - decide if dbghelp.lib linking should be exposed in CMake target_link_libraries
 //       instead of using #pragma comment(lib, ...) for better cross-project control

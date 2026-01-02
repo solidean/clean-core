@@ -318,6 +318,19 @@ public:
     [[nodiscard]] bool is_valid() const { return ptr != nullptr; }
     explicit operator bool() const { return ptr != nullptr; }
 
+    // smart pointer interface
+public:
+    [[nodiscard]] T& operator*() const
+    {
+        CC_ASSERT(ptr != nullptr, "dereferencing null node_allocation");
+        return *ptr;
+    }
+    [[nodiscard]] T* operator->() const
+    {
+        CC_ASSERT(ptr != nullptr, "dereferencing null node_allocation");
+        return ptr;
+    }
+
     // factory
 public:
     // NOTE: resource can be nullptr
@@ -485,6 +498,19 @@ struct cc::poly_node_allocation
 public:
     [[nodiscard]] bool is_valid() const { return ptr != nullptr; }
     explicit operator bool() const { return ptr != nullptr; }
+
+    // smart pointer interface
+public:
+    [[nodiscard]] T& operator*() const
+    {
+        CC_ASSERT(ptr != nullptr, "dereferencing null poly_node_allocation");
+        return *ptr;
+    }
+    [[nodiscard]] T* operator->() const
+    {
+        CC_ASSERT(ptr != nullptr, "dereferencing null poly_node_allocation");
+        return ptr;
+    }
 
     // ctors/dtor
 public:

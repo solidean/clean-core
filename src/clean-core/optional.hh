@@ -46,11 +46,10 @@ public:
     /// Returns a reference to the held value, preserving the value category of the optional itself.
     /// Precondition: has_value() == true.
     /// Uses deducing this (C++23) to forward lvalue/rvalue/const qualifiers from the optional to T.
-    template <class Self>
-    [[nodiscard]] constexpr auto&& value(this Self&& self)
+    [[nodiscard]] constexpr auto&& value(this auto&& self)
     {
         CC_ASSERT(self.has_value(), "attempted to access value of empty optional");
-        return static_cast<Self&&>(self)._storage.value;
+        return static_cast<decltype(self)&&>(self)._storage.value;
     }
 
     /// Returns a span viewing the value if present, empty span otherwise.
@@ -110,14 +109,14 @@ public:
     /// If this optional is empty, returns an empty optional<U>.
     /// If f returns void, the result type is optional<unit> (allows void-returning functions).
     /// Uses deducing this (C++23) to handle const/non-const and lvalue/rvalue cases.
-    template <class Self, class F>
-    [[nodiscard]] constexpr auto map(this Self&& self, F&& f)
+    template <class F>
+    [[nodiscard]] constexpr auto map(this auto&& self, F&& f)
     {
         using U
-            = std::remove_cvref_t<decltype(cc::regular_invoke(cc::forward<F>(f), static_cast<Self&&>(self)._storage.value))>;
+            = std::remove_cvref_t<decltype(cc::regular_invoke(cc::forward<F>(f), static_cast<decltype(self)&&>(self)._storage.value))>;
 
         if (self._has_value)
-            return optional<U>(cc::regular_invoke(cc::forward<F>(f), static_cast<Self&&>(self)._storage.value));
+            return optional<U>(cc::regular_invoke(cc::forward<F>(f), static_cast<decltype(self)&&>(self)._storage.value));
         else
             return optional<U>();
     }

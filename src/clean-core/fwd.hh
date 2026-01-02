@@ -172,6 +172,7 @@ template <class T>
 struct optional;
 
 struct any_error;
+template <class E>
 struct as_error_t;
 
 template <class T, class E = any_error>

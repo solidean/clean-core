@@ -8,7 +8,9 @@ project(clean-core LANGUAGES CXX)
 add_library(clean-core
     src/clean-core/allocation.cc
     src/clean-core/assert.cc
+    src/clean-core/native.cc
     src/clean-core/node_allocation.cc
+    src/clean-core/result.cc
     src/clean-core/to_string.cc
     src/clean-core/string.cc
     src/clean-core/string_view.cc
@@ -28,6 +30,7 @@ target_sources(clean-core
     src/clean-core/fixed_array.hh
     src/clean-core/allocation.hh
     src/clean-core/assert.hh
+    src/clean-core/asserts.hh
     src/clean-core/assertf.hh
     src/clean-core/assert-handler.hh
     src/clean-core/bit.hh
@@ -114,6 +117,7 @@ add_executable(clean-core-test
     tests/mutex-test.cc
     tests/node_allocation-test.cc
     tests/optional-test.cc
+    tests/result-test.cc
     tests/span-test.cc
     tests/strided_span-test.cc
     tests/string-test.cc

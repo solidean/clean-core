@@ -29,6 +29,6 @@ namespace cc
 ///   auto demangled = cc::demangle_symbol(mangled);  // "foo(int)"
 ///
 /// Complexity: O(symbol.size()) - depends on platform ABI implementation
-[[nodiscard]] string demangle_symbol(string_view symbol);
+[[nodiscard]] cc::string demangle_symbol(cc::string_view symbol);
 
-}
+} // namespace cc

@@ -1,8 +1,10 @@
 #include "assert.hh"
 
 #include <clean-core/assert-handler.hh>
+#include <clean-core/asserts.hh>
 #include <clean-core/stacktrace.hh>
 #include <clean-core/string.hh>
+#include <clean-core/string_view.hh>
 
 #include <cstdio>
 #include <cstdlib>
@@ -62,12 +64,14 @@ cc::impl::scoped_assertion_handler::~scoped_assertion_handler()
     pop_assertion_handler();
 }
 
-// Overload for string literals (used by assert.hh)
-CC_COLD_FUNC void cc::impl::handle_assert_failure(char const* expression, char const* message, cc::source_location location)
+// Overload for string_view (canonical implementation)
+CC_COLD_FUNC void cc::impl::handle_assert_failure_sv(char const* expression,
+                                                     cc::string_view message,
+                                                     cc::source_location location)
 {
     assertion_info const info{
         .expression = std::string(expression),
-        .message = std::string(message),
+        .message = std::string(message.data(), static_cast<size_t>(message.size())),
         .location = location,
     };
 
@@ -82,6 +86,12 @@ CC_COLD_FUNC void cc::impl::handle_assert_failure(char const* expression, char c
     }
 
     // no abort here, it's outside
+}
+
+// Overload for string literals (used by assert.hh) - delegates to string_view version
+CC_COLD_FUNC void cc::impl::handle_assert_failure(char const* expression, char const* message, cc::source_location location)
+{
+    handle_assert_failure_sv(expression, cc::string_view(message), location);
 }
 
 bool cc::impl::is_debugger_connected() noexcept
