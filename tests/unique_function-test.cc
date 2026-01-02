@@ -257,6 +257,8 @@ TEST("unique_function - return type preservation")
         auto f = cc::unique_function<int&&()>(cc::move(lambda));
 
         static_assert(std::is_same_v<decltype(f()), int&&>);
+
+        SUCCEED(); // just static checks
     }
 
     SECTION("return const lvalue reference")

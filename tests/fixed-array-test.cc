@@ -250,7 +250,7 @@ TEST("fixed_array - constexpr usage")
     {
         constexpr auto sum = []() constexpr
         {
-            cc::fixed_array<int, 4> a{1, 2, 3, 4};
+            auto const a = cc::fixed_array<int, 4>{1, 2, 3, 4};
             int total = 0;
             for (auto val : a)
             {
@@ -270,6 +270,7 @@ TEST("fixed_array - constexpr usage")
         static_assert(a[2] == 30);
         static_assert(a.front() == 10);
         static_assert(a.back() == 30);
+        CHECK(a.size() == 3);
     }
 }
 

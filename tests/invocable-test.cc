@@ -261,6 +261,8 @@ TEST("invoke - member object pointer on object lvalue returns reference")
     {
         MO m{5};
         static_assert(std::is_same_v<decltype(cc::invoke(&MO::x, m)), int&>);
+
+        SUCCEED(); // just static checks
     }
 
     SECTION("can read and write through reference")
@@ -329,7 +331,7 @@ TEST("invoke - is_invocable agrees with invoke for positive cases")
         using F = decltype(f);
         static_assert(cc::is_invocable<F>);
 
-        CHECK(true); // just static checks
+        SUCCEED(); // just static checks
     }
 
     SECTION("normal callables with args")
@@ -340,7 +342,7 @@ TEST("invoke - is_invocable agrees with invoke for positive cases")
         static_assert(cc::is_invocable<F, int&, float&>);
         static_assert(cc::is_invocable<F, int&&, float&&>);
 
-        CHECK(true); // just static checks
+        SUCCEED(); // just static checks
     }
 
     SECTION("member function pointers")
@@ -349,7 +351,7 @@ TEST("invoke - is_invocable agrees with invoke for positive cases")
         static_assert(cc::is_invocable<decltype(&S::f), S*, int>);
         static_assert(cc::is_invocable<decltype(&S::f), std::unique_ptr<S>&, int>);
 
-        CHECK(true); // just static checks
+        SUCCEED(); // just static checks
     }
 
     SECTION("member object pointers")
@@ -358,7 +360,7 @@ TEST("invoke - is_invocable agrees with invoke for positive cases")
         static_assert(cc::is_invocable<decltype(&MO::x), MO*>);
         static_assert(cc::is_invocable<decltype(&MO::x), std::unique_ptr<MO>&>);
 
-        CHECK(true); // just static checks
+        SUCCEED(); // just static checks
     }
 }
 
@@ -375,7 +377,7 @@ TEST("invoke - is_invocable rejects wrong-arity/wrong-types for normal callables
         static_assert(cc::is_invocable<H, int>);       // correct
         static_assert(!cc::is_invocable<H, int, int>); // too many args
 
-        CHECK(true); // just static checks
+        SUCCEED(); // just static checks
     }
 
     SECTION("type mismatch without implicit conversion")
@@ -388,7 +390,7 @@ TEST("invoke - is_invocable rejects wrong-arity/wrong-types for normal callables
         static_assert(cc::is_invocable<OnlyInt, int*>);
         static_assert(!cc::is_invocable<OnlyInt, int>); // int doesn't convert to int*
 
-        CHECK(true); // just static checks
+        SUCCEED(); // just static checks
     }
 }
 
@@ -400,7 +402,7 @@ TEST("invoke - member object pointer rejects extra args via is_invocable")
         static_assert(!cc::is_invocable<decltype(&MO::x), MO*, int>);
         static_assert(!cc::is_invocable<decltype(&MO::x), std::unique_ptr<MO>&, int>);
 
-        CHECK(true); // just static checks
+        SUCCEED(); // just static checks
     }
 
     SECTION("correct usage has no extra args")
@@ -408,7 +410,7 @@ TEST("invoke - member object pointer rejects extra args via is_invocable")
         static_assert(cc::is_invocable<decltype(&MO::x), MO&>);
         static_assert(cc::is_invocable<decltype(&MO::x), MO*>);
 
-        CHECK(true); // just static checks
+        SUCCEED(); // just static checks
     }
 }
 
@@ -426,7 +428,7 @@ TEST("invoke - is_invocable documents implicit conversions")
         static_assert(cc::is_invocable<I, char>);  // char -> int
         static_assert(cc::is_invocable<I, bool>);  // bool -> int
 
-        CHECK(true); // just static checks
+        SUCCEED(); // just static checks
     }
 
     SECTION("implicit pointer conversions")
@@ -440,7 +442,7 @@ TEST("invoke - is_invocable documents implicit conversions")
         static_assert(cc::is_invocable<PtrFunc, char*>);          // char* -> void const*
         static_assert(cc::is_invocable<PtrFunc, std::nullptr_t>); // nullptr -> void const*
 
-        CHECK(true); // just static checks
+        SUCCEED(); // just static checks
     }
 }
 
@@ -460,7 +462,7 @@ TEST("invoke - is_invocable_r for convertible vs non-convertible return types")
         static_assert(cc::is_invocable_r<float, F>);  // int -> float
         static_assert(cc::is_invocable_r<double, F>); // int -> double
 
-        CHECK(true); // just static checks
+        SUCCEED(); // just static checks
     }
 
     SECTION("non-convertible return types")
@@ -472,7 +474,7 @@ TEST("invoke - is_invocable_r for convertible vs non-convertible return types")
         static_assert(!cc::is_invocable_r<int, F>);         // string doesn't convert to int
         static_assert(!cc::is_invocable_r<char const*, F>); // string doesn't implicitly convert to char*
 
-        CHECK(true); // just static checks
+        SUCCEED(); // just static checks
     }
 
     SECTION("reference return types")
@@ -485,7 +487,7 @@ TEST("invoke - is_invocable_r for convertible vs non-convertible return types")
         static_assert(cc::is_invocable_r<int, F>);        // int& -> int (copy)
         static_assert(cc::is_invocable_r<int const&, F>); // int& -> int const&
 
-        CHECK(true); // just static checks
+        SUCCEED(); // just static checks
     }
 }
 
@@ -499,7 +501,7 @@ TEST("invoke - is_invocable_r void accepts any return type")
         };
         static_assert(cc::is_invocable_r<void, RV>);
 
-        CHECK(true); // just static checks
+        SUCCEED(); // just static checks
     }
 
     SECTION("void target accepts void return")
@@ -510,7 +512,7 @@ TEST("invoke - is_invocable_r void accepts any return type")
         };
         static_assert(cc::is_invocable_r<void, RVo>);
 
-        CHECK(true); // just static checks
+        SUCCEED(); // just static checks
     }
 
     SECTION("void target accepts string return")
@@ -519,7 +521,7 @@ TEST("invoke - is_invocable_r void accepts any return type")
         using F = decltype(f);
         static_assert(cc::is_invocable_r<void, F>);
 
-        CHECK(true); // just static checks
+        SUCCEED(); // just static checks
     }
 
     SECTION("void target accepts reference return")
@@ -529,7 +531,7 @@ TEST("invoke - is_invocable_r void accepts any return type")
         using F = decltype(f);
         static_assert(cc::is_invocable_r<void, F>);
 
-        CHECK(true); // just static checks
+        SUCCEED(); // just static checks
     }
 }
 
@@ -630,7 +632,7 @@ TEST("invoke - comprehensive is_invocable matrix")
         };
         static_assert(cc::is_invocable<Functor, int>);
 
-        CHECK(true); // just static checks
+        SUCCEED(); // just static checks
     }
 
     SECTION("member pointer forms with different arg0 types")
@@ -645,7 +647,7 @@ TEST("invoke - comprehensive is_invocable matrix")
         static_assert(cc::is_invocable<decltype(&MO::x), MO&>);
         static_assert(cc::is_invocable<decltype(&MO::x), MO*>);
 
-        CHECK(true); // just static checks
+        SUCCEED(); // just static checks
     }
 }
 
@@ -656,7 +658,7 @@ TEST("invoke - return type preservation")
         auto f = []() { return 42; };
         static_assert(std::is_same_v<decltype(cc::invoke(f)), int>);
 
-        CHECK(true); // just static checks
+        SUCCEED(); // just static checks
     }
 
     SECTION("lvalue reference")
@@ -665,7 +667,7 @@ TEST("invoke - return type preservation")
         auto f = [&]() -> int& { return x; };
         static_assert(std::is_same_v<decltype(cc::invoke(f)), int&>);
 
-        CHECK(true); // just static checks
+        SUCCEED(); // just static checks
     }
 
     SECTION("rvalue reference")
@@ -677,7 +679,7 @@ TEST("invoke - return type preservation")
         };
         static_assert(std::is_same_v<decltype(cc::invoke(f)), int&&>);
 
-        CHECK(true); // just static checks
+        SUCCEED(); // just static checks
     }
 
     SECTION("const lvalue reference")
@@ -686,7 +688,7 @@ TEST("invoke - return type preservation")
         auto f = [&]() -> int const& { return x; };
         static_assert(std::is_same_v<decltype(cc::invoke(f)), int const&>);
 
-        CHECK(true); // just static checks
+        SUCCEED(); // just static checks
     }
 }
 

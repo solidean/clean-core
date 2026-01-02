@@ -932,12 +932,16 @@ TEST("result - const correctness")
     {
         auto res = cc::result<int, int>{42};
         static_assert(std::is_same_v<decltype(cc::move(res).value()), int&&>);
+
+        SUCCEED(); // just static checks
     }
 
     SECTION("rvalue result with error")
     {
         auto res = cc::result<int, int>{cc::error(99)};
         static_assert(std::is_same_v<decltype(cc::move(res).error()), int&&>);
+
+        SUCCEED(); // just static checks
     }
 }
 

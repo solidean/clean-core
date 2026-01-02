@@ -362,6 +362,8 @@ TEST("function_ref - return type preservation")
         cc::function_ref<int&&()> ref(f);
 
         static_assert(std::is_same_v<decltype(ref()), int&&>);
+
+        SUCCEED(); // just static checks
     }
 
     SECTION("return const lvalue reference")

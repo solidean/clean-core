@@ -723,6 +723,8 @@ TEST("utility - overloaded combines multiple callables")
 
         static_assert(std::is_same_v<decltype(f(1)), int>);
         static_assert(std::is_same_v<decltype(f(1.0f)), float>);
+
+        SUCCEED(); // just static checks
     }
 
     SECTION("overloaded with references")
@@ -742,20 +744,20 @@ TEST("utility - void_function returns void")
     SECTION("no arguments")
     {
         cc::void_function{}();
-        CHECK(true); // just checking it compiles and runs
+        SUCCEED(); // just checking it compiles and runs
     }
 
     SECTION("multiple arguments")
     {
         cc::void_function{}(1, 2, 3, "test", 3.14f);
-        CHECK(true); // just checking it compiles and runs
+        SUCCEED(); // just checking it compiles and runs
     }
 
     SECTION("used as callback")
     {
         auto execute = [](auto fn) { fn(10, 20); };
         execute(cc::void_function{});
-        CHECK(true); // just checking it compiles and runs
+        SUCCEED(); // just checking it compiles and runs
     }
 }
 
@@ -772,6 +774,8 @@ TEST("utility - identify_function preserves value category")
     SECTION("rvalue reference")
     {
         static_assert(std::is_same_v<decltype(cc::identify_function{}(10)), int&&>);
+
+        SUCCEED(); // just static checks
     }
 
     SECTION("const lvalue reference")
@@ -865,7 +869,7 @@ TEST("utility - dont_deduce disables deduction")
     static_assert(std::is_same_v<cc::dont_deduce<int>, int>);
     static_assert(std::is_same_v<cc::dont_deduce<float>, float>);
     static_assert(std::is_same_v<cc::dont_deduce<char const*>, char const*>);
-    CHECK(true); // compile-time test only
+    SUCCEED(); // compile-time test only
 }
 
 TEST("utility - function_ptr converts signatures to pointers")
@@ -874,24 +878,32 @@ TEST("utility - function_ptr converts signatures to pointers")
     {
         using ptr_t = cc::function_ptr<int(float, double)>;
         static_assert(std::is_same_v<ptr_t, int (*)(float, double)>);
+
+        SUCCEED(); // just static checks
     }
 
     SECTION("void return")
     {
         using ptr_t = cc::function_ptr<void()>;
         static_assert(std::is_same_v<ptr_t, void (*)()>);
+
+        SUCCEED(); // just static checks
     }
 
     SECTION("noexcept function")
     {
         using ptr_t = cc::function_ptr<int(float) noexcept>;
         static_assert(std::is_same_v<ptr_t, int (*)(float) noexcept>);
+
+        SUCCEED(); // just static checks
     }
 
     SECTION("function with many parameters")
     {
         using ptr_t = cc::function_ptr<char*(int, float, double, char)>;
         static_assert(std::is_same_v<ptr_t, char* (*)(int, float, double, char)>);
+
+        SUCCEED(); // just static checks
     }
 
     SECTION("can be used with actual function pointers")
@@ -1018,7 +1030,8 @@ TEST("utility - sentinel as end-of-range marker")
     {
         cc::sentinel s;
         cc::sentinel s2{};
-        // Just checking it compiles
+
+        SUCCEED(); // Just checking it compiles
     }
 
     SECTION("sentinel used with custom iterator")

@@ -568,6 +568,8 @@ TEST("fixed_span - tuple protocol")
         static_assert(std::is_same_v<std::tuple_element_t<0, span_type>, int>);
         static_assert(std::is_same_v<std::tuple_element_t<1, span_type>, int>);
         static_assert(std::is_same_v<std::tuple_element_t<2, span_type>, int>);
+
+        SUCCEED(); // just static checks
     }
 }
 

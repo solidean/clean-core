@@ -121,7 +121,8 @@ struct CountingResource : cc::memory_resource
 
     CountingResource()
     {
-        allocate_bytes = [](cc::byte** out_ptr, cc::isize min_bytes, cc::isize max_bytes, cc::isize alignment, void* userdata) -> cc::isize
+        allocate_bytes = [](cc::byte** out_ptr, cc::isize min_bytes, cc::isize max_bytes, cc::isize alignment,
+                            void* userdata) -> cc::isize
         {
             auto* self = static_cast<CountingResource*>(userdata);
             ++self->allocations;
@@ -766,6 +767,8 @@ TEST("array - move-only element type")
 
         // Verify at compile time that create_filled is not available
         static_assert(!std::is_copy_constructible_v<MoveOnly>, "MoveOnly should not be copy constructible");
+
+        SUCCEED(); // just static checks
     }
 
     SECTION("copy constructor does not compile")
@@ -777,6 +780,8 @@ TEST("array - move-only element type")
         // array should be copy constructible iff T is copy constructible
         static_assert(std::is_copy_constructible_v<cc::array<int>>, "array<int> should be copy constructible");
         static_assert(!std::is_copy_constructible_v<MoveOnly>, "MoveOnly should not be copy constructible");
+
+        SUCCEED(); // just static checks
     }
 
     SECTION("copy assignment does not compile")
@@ -784,6 +789,8 @@ TEST("array - move-only element type")
         // array should be copy assignable iff T is copy assignable
         static_assert(std::is_copy_assignable_v<cc::array<int>>, "array<int> should be copy assignable");
         static_assert(!std::is_copy_assignable_v<MoveOnly>, "MoveOnly should not be copy assignable");
+
+        SUCCEED(); // just static checks
     }
 
     SECTION("move constructor compiles")

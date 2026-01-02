@@ -26,7 +26,7 @@ TEST("string_view - construction")
     SECTION("nullptr construction deleted")
     {
         // cc::string_view sv = nullptr; // should not compile
-        CHECK(true);
+        SUCCEED();
     }
 
     SECTION("C string construction")
