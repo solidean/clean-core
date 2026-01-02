@@ -43,7 +43,7 @@ void cc::any_error::impl_ensure_payload()
                                                          cc::source_location::current());
 }
 
-cc::any_error& cc::any_error::add_context(cc::string message, cc::source_location site) &
+cc::any_error& cc::any_error::with_context(cc::string message, cc::source_location site) &
 {
     this->impl_ensure_payload();
 
@@ -55,7 +55,7 @@ cc::any_error& cc::any_error::add_context(cc::string message, cc::source_locatio
 
 cc::any_error cc::any_error::with_context(cc::string message, cc::source_location site) &&
 {
-    add_context(message, site);
+    with_context(message, site);
     return cc::move(*this);
 }
 

@@ -771,13 +771,13 @@ TEST("optional - subobject-safe move assignment")
     // an optional of itself, creating a situation where we can move-assign from
     // a nested subobject.
 
-    struct self_ref_foo;
     struct self_ref_foo
     {
         int value = 0;
         std::unique_ptr<cc::optional<self_ref_foo>> inner;
 
         self_ref_foo() = default;
+        ~self_ref_foo() = default;
         explicit self_ref_foo(int v) : value(v) {}
         self_ref_foo(int v, std::unique_ptr<cc::optional<self_ref_foo>> i) : value(v), inner(cc::move(i)) {}
 

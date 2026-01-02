@@ -16,39 +16,6 @@
 // - maybe plan a custom site-propagation protocol, so error type conversions can track original sites
 
 // =========================================================================================================
-// cc::as_error_t - Explicit error wrapper for result construction
-// =========================================================================================================
-
-/// Explicit wrapper for error values in result construction.
-/// Forces error construction to be explicit via cc::as_error(E).
-/// This prevents implicit conversion from types that could be either T or E.
-template <class E>
-struct cc::as_error_t
-{
-public:
-    explicit constexpr as_error_t(E const& e, cc::source_location s) : _e(e), _site(s) {}
-    explicit constexpr as_error_t(E&& e, cc::source_location s) : _e(cc::move(e)), _site(s) {}
-
-private:
-    E _e;
-    cc::source_location _site;
-
-    template <class T, class F>
-    friend struct result;
-};
-
-namespace cc
-{
-/// Factory function to create an explicit error wrapper.
-/// Usage: return cc::as_error("failure message");
-template <class E>
-[[nodiscard]] constexpr as_error_t<std::decay_t<E>> error(E&& e, cc::source_location s = cc::source_location::current())
-{
-    return as_error_t<std::decay_t<E>>(cc::forward<E>(e), s);
-}
-} // namespace cc
-
-// =========================================================================================================
 // cc::any_error - Move-only error container with context chaining
 // =========================================================================================================
 
@@ -84,24 +51,12 @@ public:
     /// Add context to the error chain (lvalue version).
     /// Returns *this for chaining.
     /// NOTE: it's valid to call this on an empty cc::any_error
-    any_error& add_context(cc::string message, cc::source_location site = cc::source_location::current()) &;
-
-    /// Add context lazily via a callable (lvalue version).
-    /// The callable is invoked immediately and should return a string-like type.
-    /// NOTE: it's valid to call this on an empty cc::any_error
-    template <class Fn>
-    any_error& add_context_lazy(Fn&& fn, cc::source_location site = cc::source_location::current()) &;
+    any_error& with_context(cc::string message, cc::source_location site = cc::source_location::current()) &;
 
     /// Add context to the error chain (rvalue version).
     /// Returns the moved error for chaining.
     /// NOTE: it's valid to call this on an empty cc::any_error
     any_error with_context(cc::string message, cc::source_location site = cc::source_location::current()) &&;
-
-    /// Add context lazily via a callable (rvalue version).
-    /// The callable is invoked immediately and should return a string-like type.
-    /// NOTE: it's valid to call this on an empty cc::any_error
-    template <class Fn>
-    any_error with_context_lazy(Fn&& fn, cc::source_location site = cc::source_location::current()) &&;
 
     /// Get the source location where this error was created.
     /// NOTE: only reliable if not !is_empty()
@@ -133,6 +88,62 @@ private:
 
     cc::node_allocation<payload> _payload;
 };
+
+// =========================================================================================================
+// cc::as_error_t - Explicit error wrapper for result construction
+// =========================================================================================================
+
+/// Explicit wrapper for error values in result construction.
+/// Forces error construction to be explicit via cc::error(E).
+/// This prevents implicit conversion from types that could be either T or E.
+template <class E>
+struct cc::as_error_t
+{
+public:
+    explicit constexpr as_error_t(E const& e, cc::source_location s) : _e(e), _site(s) {}
+    explicit constexpr as_error_t(E&& e, cc::source_location s) : _e(cc::move(e)), _site(s) {}
+
+private:
+    E _e;
+    cc::source_location _site;
+
+    template <class T, class F>
+    friend struct result;
+};
+
+namespace cc
+{
+/// Factory function to construct an explicit error wrapper for use with cc::result.
+///
+/// This is the primary way to *return* an error from functions that use cc::result.
+/// It marks the value as an error unambiguously and avoids accidental success/error
+/// confusion in overload resolution and return type deduction.
+///
+/// Typical usage:
+///   return cc::error("failure message");
+///   return cc::error(my_typed_error{...});
+///
+/// The returned wrapper does not allocate by itself. It merely tags the value as
+/// an error; the actual error object is constructed inside the receiving
+/// cc::result<T, E>.
+///
+/// When used with the default error type (cc::any_error), this enables concise
+/// application-level error handling while preserving rich debugging information
+/// (source location, context chains, optional stack traces).
+///
+/// Error construction is intentionally explicit. This function is the single
+/// sanctioned escape hatch from the success path.
+///
+/// The optional source location defaults to the call site and is propagated into
+/// cc::any_error (or ignored by error types that do not store locations).
+///
+/// Usage: return cc::error("failure message");
+template <class E>
+[[nodiscard]] constexpr as_error_t<std::decay_t<E>> error(E&& e, cc::source_location s = cc::source_location::current())
+{
+    return as_error_t<std::decay_t<E>>(cc::forward<E>(e), s);
+}
+} // namespace cc
 
 // =========================================================================================================
 // cc::result<T, E> - Tagged union representing success or failure
@@ -409,7 +420,61 @@ public:
         return _e;
     }
 
-    // TODO: provide context functions when E is any_error (or supports custom contexts?)
+    // context functions (only available when E is any_error)
+public:
+    /// Add context to the error chain (lvalue version).
+    /// Returns *this for chaining.
+    /// Only available when E is cc::any_error.
+    result& with_context(cc::string message, cc::source_location site = cc::source_location::current()) &
+    {
+        static_assert(std::is_same_v<E, any_error>, "with_context is only available for result<T, cc::any_error> aka "
+                                                    "cc::result<T>. If you need this, use cc::any_error as your error "
+                                                    "type.");
+        if (!_has_value)
+            _e.with_context(cc::move(message), site);
+        return *this;
+    }
+
+    /// Add context to the error chain (rvalue version).
+    /// Returns the moved result for chaining.
+    /// Only available when E is cc::any_error.
+    result with_context(cc::string message, cc::source_location site = cc::source_location::current()) &&
+    {
+        static_assert(std::is_same_v<E, any_error>, "with_context is only available for result<T, cc::any_error> aka "
+                                                    "cc::result<T>. If you need this, use cc::any_error as your error "
+                                                    "type.");
+        if (!_has_value)
+            _e.with_context(cc::move(message), site);
+        return cc::move(*this);
+    }
+
+    /// Add context lazily via a callable (lvalue version).
+    /// The callable is only invoked if the result contains an error.
+    /// Only available when E is cc::any_error.
+    template <class Fn>
+    result& with_context_lazy(Fn&& fn, cc::source_location site = cc::source_location::current()) &
+    {
+        static_assert(std::is_same_v<E, any_error>, "with_context_lazy is only available for result<T, cc::any_error> "
+                                                    "aka cc::result<T>. If you need this, use cc::any_error as your "
+                                                    "error type.");
+        if (!_has_value)
+            _e.with_context(cc::string(cc::invoke(cc::forward<Fn>(fn))), site);
+        return *this;
+    }
+
+    /// Add context lazily via a callable (rvalue version).
+    /// The callable is only invoked if the result contains an error.
+    /// Only available when E is cc::any_error.
+    template <class Fn>
+    result with_context_lazy(Fn&& fn, cc::source_location site = cc::source_location::current()) &&
+    {
+        static_assert(std::is_same_v<E, any_error>, "with_context_lazy is only available for result<T, cc::any_error> "
+                                                    "aka cc::result<T>. If you need this, use cc::any_error as your "
+                                                    "error type.");
+        if (!_has_value)
+            _e.with_context(cc::string(cc::invoke(cc::forward<Fn>(fn))), site);
+        return cc::move(*this);
+    }
 
     // implementation helpers
 private:
@@ -461,20 +526,3 @@ struct cc::any_error::payload
     payload& operator=(payload&&) = delete;
     ~payload();
 };
-
-// =========================================================================================================
-// cc::any_error template implementation
-// =========================================================================================================
-
-template <class Fn>
-cc::any_error& cc::any_error::add_context_lazy(Fn&& fn, cc::source_location site) &
-{
-    return add_context(cc::string(cc::invoke(cc::forward<Fn>(fn))), site);
-}
-
-template <class Fn>
-cc::any_error cc::any_error::with_context_lazy(Fn&& fn, cc::source_location site) &&
-{
-    add_context(cc::string(cc::invoke(cc::forward<Fn>(fn))), site);
-    return cc::move(*this);
-}

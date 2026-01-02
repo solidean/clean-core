@@ -804,20 +804,13 @@ TEST("result - any_error integration")
     SECTION("any_error context chaining - lvalue")
     {
         auto err = cc::any_error{"base error"};
-        err.add_context("additional context");
+        err.with_context("additional context");
         CHECK(!err.is_empty());
     }
 
     SECTION("any_error context chaining - rvalue")
     {
         auto err = cc::any_error{"base error"}.with_context("additional context");
-        CHECK(!err.is_empty());
-    }
-
-    SECTION("any_error lazy context")
-    {
-        auto err = cc::any_error{"base error"};
-        err.add_context_lazy([] { return cc::string{"lazy context"}; });
         CHECK(!err.is_empty());
     }
 
@@ -983,8 +976,8 @@ TEST("result - any_error multi-layer context")
     SECTION("empty any_error can receive context")
     {
         auto err = cc::any_error{};
-        err.add_context("first context");
-        err.add_context("second context");
+        err.with_context("first context");
+        err.with_context("second context");
         auto err2 = cc::move(err).with_context("third context");
 
         auto err_str = err2.to_string();
@@ -1025,7 +1018,7 @@ TEST("result - source location capture")
 
     SECTION("result<T, E> to result<T> conversion captures location")
     {
-        auto make_typed_error = []() -> cc::result<int, std::string> { return cc::error(std::string{"typed error"}); };
+        auto make_typed_error = []() -> cc::result<int, std::string> { return cc::error("typed error"); };
 
         auto before = cc::source_location::current();
         auto res = cc::result<int>{make_typed_error()};
@@ -1043,11 +1036,219 @@ TEST("result - source location capture")
         auto err = cc::any_error{"base error"};
 
         auto before = cc::source_location::current();
-        err.add_context("context message");
+        err.with_context("context message");
         auto after = cc::source_location::current();
 
         // We can't directly query context sites, but we verify the mechanism works
         // by checking that the error is non-empty
         CHECK(!err.is_empty());
+    }
+}
+
+TEST("result - with_context on result<T>")
+{
+    SECTION("with_context on error result - lvalue")
+    {
+        auto res = cc::result<int>{cc::error("base error")};
+        res.with_context("additional context");
+
+        CHECK(res.has_error());
+        auto err_str = res.error().to_string();
+        CHECK(err_str.contains("base error"));
+        CHECK(err_str.contains("additional context"));
+    }
+
+    SECTION("with_context on error result - rvalue")
+    {
+        auto res = cc::result<int>{cc::error("base error")}.with_context("additional context");
+
+        CHECK(res.has_error());
+        auto err_str = res.error().to_string();
+        CHECK(err_str.contains("base error"));
+        CHECK(err_str.contains("additional context"));
+    }
+
+    SECTION("with_context on value result - lvalue")
+    {
+        auto res = cc::result<int>{42};
+        res.with_context("this context is ignored");
+
+        CHECK(res.has_value());
+        CHECK(res.value() == 42);
+    }
+
+    SECTION("with_context on value result - rvalue")
+    {
+        auto res = cc::result<int>{42}.with_context("this context is ignored");
+
+        CHECK(res.has_value());
+        CHECK(res.value() == 42);
+    }
+
+    SECTION("with_context chaining")
+    {
+        auto res = cc::result<int>{cc::error("base error")} //
+                       .with_context("context 1")           //
+                       .with_context("context 2")           //
+                       .with_context("context 3");
+
+        CHECK(res.has_error());
+        auto err_str = res.error().to_string();
+        CHECK(err_str.contains("base error"));
+        CHECK(err_str.contains("context 1"));
+        CHECK(err_str.contains("context 2"));
+        CHECK(err_str.contains("context 3"));
+    }
+
+    SECTION("with_context captures source location")
+    {
+        auto res = cc::result<int>{cc::error("base error")};
+
+        auto before = cc::source_location::current();
+        res.with_context("context message");
+        auto after = cc::source_location::current();
+
+        // Context was added (verified by checking it appears in output)
+        CHECK(res.has_error());
+        CHECK(res.error().to_string().contains("context message"));
+    }
+}
+
+TEST("result - with_context_lazy on result<T>")
+{
+    SECTION("with_context_lazy on error result - callable is invoked")
+    {
+        auto res = cc::result<int>{cc::error("base error")};
+        bool invoked = false;
+
+        res.with_context_lazy(
+            [&]
+            {
+                invoked = true;
+                return cc::string{"lazy context"};
+            });
+
+        CHECK(invoked);
+        CHECK(res.has_error());
+        auto err_str = res.error().to_string();
+        CHECK(err_str.contains("base error"));
+        CHECK(err_str.contains("lazy context"));
+    }
+
+    SECTION("with_context_lazy on value result - callable is NOT invoked")
+    {
+        auto res = cc::result<int>{42};
+        bool invoked = false;
+
+        res.with_context_lazy(
+            [&]
+            {
+                invoked = true;
+                return cc::string{"lazy context"};
+            });
+
+        CHECK(!invoked);
+        CHECK(res.has_value());
+        CHECK(res.value() == 42);
+    }
+
+    SECTION("with_context_lazy on error result - rvalue")
+    {
+        bool invoked = false;
+        auto res = cc::result<int>{cc::error("base error")}.with_context_lazy(
+            [&]
+            {
+                invoked = true;
+                return cc::string{"lazy context"};
+            });
+
+        CHECK(invoked);
+        CHECK(res.has_error());
+        auto err_str = res.error().to_string();
+        CHECK(err_str.contains("base error"));
+        CHECK(err_str.contains("lazy context"));
+    }
+
+    SECTION("with_context_lazy on value result - rvalue - callable is NOT invoked")
+    {
+        bool invoked = false;
+        auto res = cc::result<int>{42}.with_context_lazy(
+            [&]
+            {
+                invoked = true;
+                return cc::string{"lazy context"};
+            });
+
+        CHECK(!invoked);
+        CHECK(res.has_value());
+        CHECK(res.value() == 42);
+    }
+
+    SECTION("with_context_lazy chaining with expensive computation")
+    {
+        auto res = cc::result<int>{cc::error("base error")};
+        int computation_count = 0;
+
+        res.with_context_lazy(
+               [&]
+               {
+                   ++computation_count;
+                   return cc::string{"context 1"};
+               })
+            .with_context_lazy(
+                [&]
+                {
+                    ++computation_count;
+                    return cc::string{"context 2"};
+                });
+
+        CHECK(computation_count == 2);
+        CHECK(res.has_error());
+        auto err_str = res.error().to_string();
+        CHECK(err_str.contains("base error"));
+        CHECK(err_str.contains("context 1"));
+        CHECK(err_str.contains("context 2"));
+    }
+
+    SECTION("with_context_lazy avoids expensive computation on success")
+    {
+        auto res = cc::result<int>{42};
+        int expensive_computation_count = 0;
+
+        res.with_context_lazy(
+               [&]
+               {
+                   ++expensive_computation_count;
+                   // Simulate expensive operation
+                   return cc::string{"expensive context 1"};
+               })
+            .with_context_lazy(
+                [&]
+                {
+                    ++expensive_computation_count;
+                    return cc::string{"expensive context 2"};
+                })
+            .with_context_lazy(
+                [&]
+                {
+                    ++expensive_computation_count;
+                    return cc::string{"expensive context 3"};
+                });
+
+        CHECK(expensive_computation_count == 0);
+        CHECK(res.has_value());
+        CHECK(res.value() == 42);
+    }
+
+    SECTION("with_context_lazy captures source location")
+    {
+        auto res = cc::result<int>{cc::error("base error")};
+
+        auto before = cc::source_location::current();
+        res.with_context_lazy([] { return cc::string{"lazy context"}; });
+        auto after = cc::source_location::current();
+
+        CHECK(res.has_error());
+        CHECK(res.error().to_string().contains("lazy context"));
     }
 }

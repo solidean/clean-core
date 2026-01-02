@@ -133,3 +133,18 @@ target_link_libraries(clean-core-test
     clean-core
     nexus
 )
+
+# Coverage
+option(CC_COVERAGE_MSVC "Enable MSVC native coverage" OFF)
+
+if(CC_COVERAGE_MSVC AND MSVC)
+    # Debug info is required for sensible mapping
+    target_compile_options(clean-core PRIVATE /Zi /Od)
+    target_compile_options(clean-core-test PRIVATE /Zi /Od)
+
+    # THIS is the critical bit to enable coverage
+    target_link_options(clean-core-test PRIVATE /PROFILE)
+
+    # Optional but helps avoid weirdness
+    target_link_options(clean-core-test PRIVATE /DEBUG:FULL /INCREMENTAL:NO)
+endif()
