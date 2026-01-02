@@ -120,7 +120,7 @@ template <class T, class U = T>
 [[nodiscard]] CC_FORCE_INLINE constexpr T exchange(T& obj, U&& new_val) // NOLINT
 {
     T old_val = static_cast<T&&>(obj);
-    obj = forward<U>(new_val);
+    obj = cc::forward<U>(new_val);
     return old_val;
 }
 
@@ -335,8 +335,8 @@ template <class T>
 template <class T>
 [[nodiscard]] constexpr T align_up(T value, isize alignment)
 {
-    CC_ASSERT(alignment > 0 && is_power_of_two(alignment), "align_up: alignment must be a power of 2");
-    return align_up_masked(value, alignment - 1);
+    CC_ASSERT(alignment > 0 && cc::is_power_of_two(alignment), "align_up: alignment must be a power of 2");
+    return cc::align_up_masked(value, alignment - 1);
 }
 
 /// Decrement value to align at the given boundary
@@ -352,8 +352,8 @@ template <class T>
 template <class T>
 [[nodiscard]] constexpr T align_down(T value, isize alignment)
 {
-    CC_ASSERT(alignment > 0 && is_power_of_two(alignment), "align_down: alignment must be a power of 2");
-    return align_down_masked(value, alignment - 1);
+    CC_ASSERT(alignment > 0 && cc::is_power_of_two(alignment), "align_down: alignment must be a power of 2");
+    return cc::align_down_masked(value, alignment - 1);
 }
 
 /// Check if value is aligned at the given boundary
@@ -367,7 +367,7 @@ template <class T>
 template <class T>
 [[nodiscard]] constexpr bool is_aligned(T value, isize alignment)
 {
-    CC_ASSERT(alignment > 0 && is_power_of_two(alignment), "is_aligned: alignment must be a power of 2");
+    CC_ASSERT(alignment > 0 && cc::is_power_of_two(alignment), "is_aligned: alignment must be a power of 2");
     return 0 == ((isize)value & (alignment - 1));
 }
 
@@ -460,17 +460,19 @@ struct projection_function
     template <class... Args>
     constexpr auto&& operator()(Args&&... args) const noexcept
     {
-        return cc::forward<decltype(get_nth<I>(cc::forward<Args>(args)...))>(get_nth<I>(cc::forward<Args>(args)...));
+        return cc::forward<decltype(projection_function::get_nth<I>(cc::forward<Args>(args)...))>(
+            projection_function::get_nth<I>(cc::forward<Args>(args)...));
     }
 
 private:
+    // TODO: move to real utility
     template <unsigned Idx, class T, class... Ts>
     static constexpr auto&& get_nth(T&& first, Ts&&... rest) noexcept
     {
         if constexpr (Idx == 0)
             return cc::forward<T>(first);
         else
-            return get_nth<Idx - 1>(cc::forward<Ts>(rest)...);
+            return projection_function::get_nth<Idx - 1>(cc::forward<Ts>(rest)...);
     }
 };
 
@@ -605,7 +607,7 @@ consteval bool is_invocable_dispatch()
     }
     else
     {
-        return is_invocable_n<F, Args...>();
+        return cc::impl::is_invocable_n<F, Args...>();
     }
 }
 } // namespace impl
@@ -703,7 +705,8 @@ constexpr auto regular_invoke(F&& f, Args&&... args)
 template <class Idx, class F, class... Args>
 constexpr auto regular_invoke_with_optional_idx(Idx&& idx, F&& f, Args&&... args)
 {
-    if constexpr (std::is_void_v<decltype(cc::invoke_with_optional_idx(cc::forward<Idx>(idx), cc::forward<F>(f), cc::forward<Args>(args)...))>)
+    if constexpr (std::is_void_v<decltype(cc::invoke_with_optional_idx(cc::forward<Idx>(idx), cc::forward<F>(f),
+                                                                       cc::forward<Args>(args)...))>)
     {
         cc::invoke_with_optional_idx(cc::forward<Idx>(idx), cc::forward<F>(f), cc::forward<Args>(args)...);
         return unit{};
