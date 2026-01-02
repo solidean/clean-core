@@ -4,17 +4,6 @@
 #include <clean-core/to_string.hh>
 
 
-struct cc::any_error::payload
-{
-    cc::string message;
-
-    cc::node_allocation<context_node> ctx;
-    cc::source_location site;
-    cc::node_allocation<cc::stacktrace> trace;
-
-    explicit payload(cc::string msg, cc::source_location s) : message(cc::move(msg)), site(s) {}
-};
-
 struct cc::any_error::context_node
 {
     cc::string message;
@@ -23,6 +12,12 @@ struct cc::any_error::context_node
 
     context_node(cc::string msg, cc::source_location s) : message(cc::move(msg)), site(s) {}
 };
+
+cc::any_error::payload::payload(cc::string msg, cc::source_location s) : message(cc::move(msg)), site(s)
+{
+}
+
+cc::any_error::payload::~payload() = default;
 
 cc::any_error::any_error(cc::string message, cc::source_location site)
   : any_error(cc::default_node_allocator(), cc::move(message), site)
@@ -50,6 +45,8 @@ void cc::any_error::impl_ensure_payload()
 
 cc::any_error& cc::any_error::add_context(cc::string message, cc::source_location site) &
 {
+    this->impl_ensure_payload();
+
     auto new_ctx = cc::node_allocation<context_node>::create_from(cc::default_node_allocator(), cc::move(message), site);
     new_ctx->next = cc::move(_payload->ctx);
     _payload->ctx = cc::move(new_ctx);

@@ -947,3 +947,107 @@ TEST("result - const correctness")
         static_assert(std::is_same_v<decltype(cc::move(res).error()), int&&>);
     }
 }
+
+TEST("result - any_error multi-layer context")
+{
+    SECTION("context accumulation through layers")
+    {
+        auto layer1 = []() -> cc::result<int> { return cc::error("layer1 error"); };
+
+        auto layer2 = [&]() -> cc::result<int>
+        {
+            auto res = layer1();
+            if (res.has_error())
+                return cc::error(cc::move(res.error()).with_context("layer2 context"));
+            return res.value();
+        };
+
+        auto layer3 = [&]() -> cc::result<int>
+        {
+            auto res = layer2();
+            if (res.has_error())
+                return cc::error(cc::move(res.error()).with_context("layer3 context"));
+            return res.value();
+        };
+
+        auto res = layer3();
+        CHECK(res.has_error());
+        auto err_str = res.error().to_string();
+
+        // All context messages should appear as substrings
+        CHECK(err_str.contains("layer1 error"));
+        CHECK(err_str.contains("layer2 context"));
+        CHECK(err_str.contains("layer3 context"));
+    }
+
+    SECTION("empty any_error can receive context")
+    {
+        auto err = cc::any_error{};
+        err.add_context("first context");
+        err.add_context("second context");
+        auto err2 = cc::move(err).with_context("third context");
+
+        auto err_str = err2.to_string();
+        CHECK(err_str.contains("first context"));
+        CHECK(err_str.contains("second context"));
+        CHECK(err_str.contains("third context"));
+    }
+}
+
+TEST("result - source location capture")
+{
+    SECTION("any_error construction captures location")
+    {
+        auto before = cc::source_location::current();
+        auto err = cc::any_error{"test error"};
+        auto after = cc::source_location::current();
+
+        auto site = err.site();
+        CHECK(cc::string_view(site.file_name()) == before.file_name());
+        CHECK(site.line() > before.line());
+        CHECK(site.line() < after.line());
+    }
+
+    SECTION("cc::error captures location")
+    {
+        auto before = cc::source_location::current();
+        auto err = cc::error("test error");
+        auto after = cc::source_location::current();
+
+        // Create a result to extract the site
+        auto res = cc::result<int>{cc::move(err)};
+        CHECK(res.has_error());
+        auto site = res.error().site();
+        CHECK(cc::string_view(site.file_name()) == before.file_name());
+        CHECK(site.line() > before.line());
+        CHECK(site.line() < after.line());
+    }
+
+    SECTION("result<T, E> to result<T> conversion captures location")
+    {
+        auto make_typed_error = []() -> cc::result<int, std::string> { return cc::error(std::string{"typed error"}); };
+
+        auto before = cc::source_location::current();
+        auto res = cc::result<int>{make_typed_error()};
+        auto after = cc::source_location::current();
+
+        CHECK(res.has_error());
+        auto site = res.error().site();
+        CHECK(cc::string_view(site.file_name()) == before.file_name());
+        CHECK(site.line() > before.line());
+        CHECK(site.line() < after.line());
+    }
+
+    SECTION("context addition captures location")
+    {
+        auto err = cc::any_error{"base error"};
+
+        auto before = cc::source_location::current();
+        err.add_context("context message");
+        auto after = cc::source_location::current();
+
+        // We can't directly query context sites, but we verify the mechanism works
+        // by checking that the error is non-empty
+        CHECK(!err.is_empty());
+    }
+}

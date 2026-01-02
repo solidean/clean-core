@@ -26,13 +26,8 @@ template <class E>
 struct cc::as_error_t
 {
 public:
-    explicit constexpr as_error_t(E const& e, cc::source_location s = cc::source_location::current()) : _e(e), _site(s)
-    {
-    }
-    explicit constexpr as_error_t(E&& e, cc::source_location s = cc::source_location::current())
-      : _e(cc::move(e)), _site(s)
-    {
-    }
+    explicit constexpr as_error_t(E const& e, cc::source_location s) : _e(e), _site(s) {}
+    explicit constexpr as_error_t(E&& e, cc::source_location s) : _e(cc::move(e)), _site(s) {}
 
 private:
     E _e;
@@ -47,9 +42,9 @@ namespace cc
 /// Factory function to create an explicit error wrapper.
 /// Usage: return cc::as_error("failure message");
 template <class E>
-[[nodiscard]] constexpr as_error_t<std::decay_t<E>> error(E&& e)
+[[nodiscard]] constexpr as_error_t<std::decay_t<E>> error(E&& e, cc::source_location s = cc::source_location::current())
 {
-    return as_error_t<std::decay_t<E>>(cc::forward<E>(e));
+    return as_error_t<std::decay_t<E>>(cc::forward<E>(e), s);
 }
 } // namespace cc
 
@@ -444,6 +439,27 @@ private:
         T _v;
         E _e;
     };
+};
+
+// =========================================================================================================
+// cc::any_error implementation details
+// =========================================================================================================
+
+struct cc::any_error::payload
+{
+    cc::string message;
+
+    cc::node_allocation<context_node> ctx;
+    cc::source_location site;
+    cc::node_allocation<cc::stacktrace> trace;
+
+    explicit payload(cc::string msg, cc::source_location s);
+
+    payload(payload const&) = delete;
+    payload(payload&&) = delete;
+    payload& operator=(payload const&) = delete;
+    payload& operator=(payload&&) = delete;
+    ~payload();
 };
 
 // =========================================================================================================
