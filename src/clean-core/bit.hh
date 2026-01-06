@@ -68,6 +68,10 @@ using std::has_single_bit;
 
 /// Finds the smallest integral power of 2 not less than the given value
 /// Returns the smallest power of 2 that is >= value (rounds up)
+/// WARNING: Undefined behavior if the result is not representable in the type.
+///          For uint8_t: UB if value > 128 (result would be 256)
+///          For uint16_t: UB if value > 32768 (result would be 65536)
+///          For uint32_t: UB if value > 2147483648 (result would be 4294967296)
 /// Usage:
 ///   auto result = cc::bit_ceil(5u);   // 8
 ///   auto result = cc::bit_ceil(16u);  // 16

@@ -788,7 +788,7 @@ TEST("optional - subobject-safe move assignment")
         {
             value = rhs.value;
             inner = cc::move(rhs.inner);
-            rhs.value = -1;
+            // careful! rhs is dead here
             return *this;
         }
     };

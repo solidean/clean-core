@@ -737,6 +737,23 @@ TEST("to_debug_string - char ensures visibility in collections")
 }
 
 // =========================================================================================================
+// Non-null terminated char const* tests
+// =========================================================================================================
+
+TEST("to_debug_string - non-null terminated char const* does not crash")
+{
+    // Create a non-null terminated char buffer
+    const std::vector<char> v = {'h', 'i'};
+
+    // This should not crash even though the buffer is not null-terminated
+    auto result = cc::to_debug_string(v.data());
+
+    // We just verify that it doesn't crash and produces some output
+    // The exact output format isn't critical, but it should be safe
+    CHECK(result.size() > 0);
+}
+
+// =========================================================================================================
 // Nullptr tests
 // =========================================================================================================
 

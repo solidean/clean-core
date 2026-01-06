@@ -2,6 +2,8 @@
 
 #include <nexus/test.hh>
 
+#include <iostream>
+
 using namespace cc::primitive_defines;
 
 // =========================================================================================================
@@ -707,9 +709,11 @@ TEST("bit - power of two relationships")
 
     SECTION("has_single_bit iff bit_ceil == bit_floor (for non-zero)")
     {
-        for (u8 i = 1; i < 255; ++i)
+        // NOTE: bit_ceil(129) == 256 BUT this is not representable in u8
+        for (u8 i = 1; i <= 128; ++i)
         {
             bool const is_pow2 = cc::has_single_bit(i);
+            std::cerr << "i = " << (int)i << std::endl;
             bool const ceil_eq_floor = (cc::bit_ceil(i) == cc::bit_floor(i));
             CHECK(is_pow2 == ceil_eq_floor);
         }
@@ -946,23 +950,23 @@ TEST("bit - atomic operations return old values")
         u32 value = 10;
 
         u32 old = cc::atomic_add(value, u32(5));
-        CHECK(old == 10);  // old value before add
+        CHECK(old == 10);   // old value before add
         CHECK(value == 15); // new value after add
 
         old = cc::atomic_sub(value, u32(3));
-        CHECK(old == 15);  // old value before sub
+        CHECK(old == 15);   // old value before sub
         CHECK(value == 12); // new value after sub
 
         old = cc::atomic_and(value, u32(0x0F));
-        CHECK(old == 12);  // old value before and
+        CHECK(old == 12);   // old value before and
         CHECK(value == 12); // new value after and (12 & 15 = 12)
 
         old = cc::atomic_or(value, u32(0x10));
-        CHECK(old == 12);  // old value before or
+        CHECK(old == 12);   // old value before or
         CHECK(value == 28); // new value after or (12 | 16 = 28)
 
         old = cc::atomic_xor(value, u32(0xFF));
-        CHECK(old == 28);  // old value before xor
+        CHECK(old == 28);    // old value before xor
         CHECK(value == 227); // new value after xor (28 ^ 255 = 227)
     }
 }

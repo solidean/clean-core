@@ -22,7 +22,8 @@
 template <class T>
 struct cc::vector : private cc::allocating_container<T, vector<T>>
 {
-    static_assert(std::is_object_v<T> && !std::is_const_v<T>, "allocations need to refer to non-const objects, not references/functions/void");
+    static_assert(std::is_object_v<T> && !std::is_const_v<T>,
+                  "allocations need to refer to non-const objects, not references/functions/void");
 
     using base = cc::allocating_container<T, vector<T>>;
 
@@ -138,7 +139,7 @@ public:
     // ctors / allocation management
 public:
     // vector has deep-copy value semantics
-    using base::allocating_container; // inherit constructors (including initializer_list)
+    using base::base; // inherit constructors (including initializer_list)
     vector() = default;
     ~vector() = default;
     vector(vector&&) = default;

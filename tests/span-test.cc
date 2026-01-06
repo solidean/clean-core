@@ -598,11 +598,14 @@ TEST("span - braced init list construction")
 {
     SECTION("span from braced init")
     {
-        auto const s = cc::span<int const>{std::initializer_list<int>{1, 2, 3}};
-        CHECK(s.size() == 3);
-        CHECK(s[0] == 1);
-        CHECK(s[1] == 2);
-        CHECK(s[2] == 3);
+        auto check_span = [](cc::span<int const> s)
+        {
+            CHECK(s.size() == 3);
+            CHECK(s[0] == 1);
+            CHECK(s[1] == 2);
+            CHECK(s[2] == 3);
+        };
+        check_span({1, 2, 3});
     }
 }
 
@@ -610,10 +613,13 @@ TEST("fixed_span - braced init list construction")
 {
     SECTION("fixed_span from braced init")
     {
-        auto const s = cc::fixed_span<int const, 3>{std::initializer_list<int>{1, 2, 3}};
-        CHECK(s.size() == 3);
-        CHECK(s[0] == 1);
-        CHECK(s[1] == 2);
-        CHECK(s[2] == 3);
+        auto check_span = [](cc::fixed_span<int const, 3> s)
+        {
+            CHECK(s.size() == 3);
+            CHECK(s[0] == 1);
+            CHECK(s[1] == 2);
+            CHECK(s[2] == 3);
+        };
+        check_span(cc::fixed_span<int const, 3>{1, 2, 3});
     }
 }

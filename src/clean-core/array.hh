@@ -18,7 +18,8 @@
 template <class T>
 struct cc::array : private cc::allocating_container<T, array<T>>
 {
-    static_assert(std::is_object_v<T> && !std::is_const_v<T>, "allocations need to refer to non-const objects, not references/functions/void");
+    static_assert(std::is_object_v<T> && !std::is_const_v<T>,
+                  "allocations need to refer to non-const objects, not references/functions/void");
 
     using base = cc::allocating_container<T, array<T>>;
 
@@ -58,7 +59,7 @@ public:
     using base::extract_allocation; // extract underlying allocation
 
     // array has deep-copy value semantics
-    using base::allocating_container; // inherit constructors (including initializer_list)
+    using base::base; // inherit constructors (including initializer_list)
     array() = default;
     ~array() = default;
     array(array&&) = default;

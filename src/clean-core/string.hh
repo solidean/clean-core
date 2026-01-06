@@ -151,7 +151,8 @@ public:
         else
             result._data.heap._data.obj_end = result._data.heap._data.obj_start + source.size();
 
-        std::memcpy(result.data(), source.data(), source.size());
+        if (!source.empty())
+            std::memcpy(result.data(), source.data(), source.size());
         result.data()[source.size()] = '\0';
 
         return result;
@@ -191,7 +192,8 @@ public:
         if (size <= small_capacity)
         {
             initialize_small_empty(resource);
-            std::memcpy(_data.small.data, ptr, size);
+            if (size > 0)
+                std::memcpy(_data.small.data, ptr, size);
             _data.small.size = static_cast<u8>(size);
         }
         else
@@ -214,7 +216,8 @@ public:
         if (size <= small_capacity)
         {
             initialize_small_empty(resource);
-            std::memcpy(_data.small.data, begin, size);
+            if (size > 0)
+                std::memcpy(_data.small.data, begin, size);
             _data.small.size = static_cast<u8>(size);
         }
         else
@@ -236,7 +239,8 @@ public:
         if (len <= small_capacity)
         {
             initialize_small_empty(resource);
-            std::memcpy(_data.small.data, cstr, len);
+            if (len > 0)
+                std::memcpy(_data.small.data, cstr, len);
             _data.small.size = u8(len);
         }
         else
@@ -262,7 +266,8 @@ public:
         if (data_size <= small_capacity)
         {
             initialize_small_empty(resource);
-            std::memcpy(_data.small.data, data_ptr, data_size);
+            if (data_size > 0)
+                std::memcpy(_data.small.data, data_ptr, data_size);
             _data.small.size = static_cast<u8>(data_size);
         }
         else

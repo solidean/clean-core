@@ -63,10 +63,12 @@ struct Counter
 
 TEST("function_ref - default construction creates invalid state")
 {
-    cc::function_ref<int()> f;
-
-    CHECK(!f.is_valid());
-    CHECK(!f);
+    auto check_invalid = [](cc::function_ref<int()> f)
+    {
+        CHECK(!f.is_valid());
+        CHECK(!f);
+    };
+    check_invalid({});
 }
 
 TEST("function_ref - construction from function pointer")
@@ -74,28 +76,31 @@ TEST("function_ref - construction from function pointer")
     SECTION("0-ary function")
     {
         auto func = +[]() { return 42; };
-        cc::function_ref<int()> f(func);
-
-        CHECK(f.is_valid());
-        CHECK(f);
-        CHECK(f() == 42);
+        auto check = [](cc::function_ref<int()> f)
+        {
+            CHECK(f.is_valid());
+            CHECK(f);
+            CHECK(f() == 42);
+        };
+        check(func);
     }
 
     SECTION("unary function")
     {
         auto func = +[](int x) { return x * 2; };
-        cc::function_ref<int(int)> f(func);
-
-        CHECK(f.is_valid());
-        CHECK(f(5) == 10);
+        auto check = [](cc::function_ref<int(int)> f)
+        {
+            CHECK(f.is_valid());
+            CHECK(f(5) == 10);
+        };
+        check(func);
     }
 
     SECTION("multi-arg function")
     {
         auto func = +[](int a, int b, int c) { return a + b + c; };
-        cc::function_ref<int(int, int, int)> f(func);
-
-        CHECK(f(1, 2, 3) == 6);
+        auto check = [](cc::function_ref<int(int, int, int)> f) { CHECK(f(1, 2, 3) == 6); };
+        check(func);
     }
 }
 
@@ -104,32 +109,38 @@ TEST("function_ref - construction from lambda lvalue")
     SECTION("stateless lambda")
     {
         auto lambda = [](int x) { return x + 1; };
-        cc::function_ref<int(int)> f(lambda);
-
-        CHECK(f.is_valid());
-        CHECK(f(10) == 11);
+        auto check = [](cc::function_ref<int(int)> f)
+        {
+            CHECK(f.is_valid());
+            CHECK(f(10) == 11);
+        };
+        check(lambda);
     }
 
     SECTION("lambda with captures")
     {
         int base = 100;
         auto lambda = [&base](int x) { return base + x; };
-        cc::function_ref<int(int)> f(lambda);
+        auto check = [&base](cc::function_ref<int(int)> f)
+        {
+            CHECK(f(5) == 105);
 
-        CHECK(f(5) == 105);
-
-        base = 200;
-        CHECK(f(5) == 205); // captures by reference, sees updated value
+            base = 200;
+            CHECK(f(5) == 205); // captures by reference, sees updated value
+        };
+        check(lambda);
     }
 
     SECTION("mutable lambda")
     {
         auto lambda = [count = 0]() mutable { return ++count; };
-        cc::function_ref<int()> f(lambda);
-
-        CHECK(f() == 1);
-        CHECK(f() == 2); // state persists in the lambda itself
-        CHECK(f() == 3);
+        auto check = [](cc::function_ref<int()> f)
+        {
+            CHECK(f() == 1);
+            CHECK(f() == 2); // state persists in the lambda itself
+            CHECK(f() == 3);
+        };
+        check(lambda);
     }
 }
 
@@ -138,20 +149,24 @@ TEST("function_ref - construction from functor")
     SECTION("const functor")
     {
         Adder adder{10};
-        cc::function_ref<int(int)> f(adder);
-
-        CHECK(f.is_valid());
-        CHECK(f(5) == 15);
+        auto check = [](cc::function_ref<int(int)> f)
+        {
+            CHECK(f.is_valid());
+            CHECK(f(5) == 15);
+        };
+        check(adder);
     }
 
     SECTION("mutable functor")
     {
         Counter counter;
-        cc::function_ref<int()> f(counter);
-
-        CHECK(f() == 1);
-        CHECK(f() == 2);
-        CHECK(counter.count == 2); // original functor is modified
+        auto check = [&counter](cc::function_ref<int()> f)
+        {
+            CHECK(f() == 1);
+            CHECK(f() == 2);
+            CHECK(counter.count == 2); // original functor is modified
+        };
+        check(counter);
     }
 }
 
@@ -162,11 +177,13 @@ TEST("function_ref - construction from pointer-to-member-function")
         S obj;
         obj.value = 10;
 
-        cc::function_ref<int(S&, int)> f(&S::add);
-
-        CHECK(f.is_valid());
-        CHECK(f(obj, 5) == 15);
-        CHECK(obj.call_count == 1);
+        auto check = [&obj](cc::function_ref<int(S&, int)> f)
+        {
+            CHECK(f.is_valid());
+            CHECK(f(obj, 5) == 15);
+            CHECK(obj.call_count == 1);
+        };
+        check(&S::add);
     }
 
     SECTION("non-const member function with pointer")
@@ -175,18 +192,19 @@ TEST("function_ref - construction from pointer-to-member-function")
         obj.value = 20;
         S* ptr = &obj;
 
-        cc::function_ref<int(S*, int)> f(&S::add);
-
-        CHECK(f(ptr, 3) == 23);
-        CHECK(obj.call_count == 1);
+        auto check = [&obj, ptr](cc::function_ref<int(S*, int)> f)
+        {
+            CHECK(f(ptr, 3) == 23);
+            CHECK(obj.call_count == 1);
+        };
+        check(&S::add);
     }
 
     SECTION("const member function")
     {
         S const obj{30, 0};
-        cc::function_ref<int(S const&, int)> f(&S::add_const);
-
-        CHECK(f(obj, 12) == 42);
+        auto check = [&obj](cc::function_ref<int(S const&, int)> f) { CHECK(f(obj, 12) == 42); };
+        check(&S::add_const);
     }
 
     SECTION("member function with smart pointer")
@@ -194,10 +212,12 @@ TEST("function_ref - construction from pointer-to-member-function")
         auto up = std::make_unique<S>();
         up->value = 50;
 
-        cc::function_ref<int(std::unique_ptr<S>&, int)> f(&S::add);
-
-        CHECK(f(up, 7) == 57);
-        CHECK(up->call_count == 1);
+        auto check = [&up](cc::function_ref<int(std::unique_ptr<S>&, int)> f)
+        {
+            CHECK(f(up, 7) == 57);
+            CHECK(up->call_count == 1);
+        };
+        check(&S::add);
     }
 }
 
@@ -206,13 +226,15 @@ TEST("function_ref - construction from pointer-to-member-object")
     SECTION("member object with object")
     {
         MO obj{42};
-        cc::function_ref<int&(MO&)> f(&MO::x);
+        auto check = [&obj](cc::function_ref<int&(MO&)> f)
+        {
+            CHECK(f.is_valid());
+            CHECK(f(obj) == 42);
 
-        CHECK(f.is_valid());
-        CHECK(f(obj) == 42);
-
-        f(obj) = 99;
-        CHECK(obj.x == 99);
+            f(obj) = 99;
+            CHECK(obj.x == 99);
+        };
+        check(&MO::x);
     }
 
     SECTION("member object with pointer")
@@ -220,11 +242,13 @@ TEST("function_ref - construction from pointer-to-member-object")
         MO obj{10};
         MO* ptr = &obj;
 
-        cc::function_ref<int&(MO*)> f(&MO::x);
-
-        CHECK(f(ptr) == 10);
-        f(ptr) = 20;
-        CHECK(obj.x == 20);
+        auto check = [&obj, ptr](cc::function_ref<int&(MO*)> f)
+        {
+            CHECK(f(ptr) == 10);
+            f(ptr) = 20;
+            CHECK(obj.x == 20);
+        };
+        check(&MO::x);
     }
 
     SECTION("member object with smart pointer")
@@ -232,11 +256,13 @@ TEST("function_ref - construction from pointer-to-member-object")
         auto up = std::make_unique<MO>();
         up->x = 30;
 
-        cc::function_ref<int&(std::unique_ptr<MO>&)> f(&MO::x);
-
-        CHECK(f(up) == 30);
-        f(up) = 40;
-        CHECK(up->x == 40);
+        auto check = [&up](cc::function_ref<int&(std::unique_ptr<MO>&)> f)
+        {
+            CHECK(f(up) == 30);
+            f(up) = 40;
+            CHECK(up->x == 40);
+        };
+        check(&MO::x);
     }
 }
 
@@ -244,18 +270,23 @@ TEST("function_ref - validity queries")
 {
     SECTION("default constructed is invalid")
     {
-        cc::function_ref<void()> f;
-        CHECK(!f.is_valid());
-        CHECK(!static_cast<bool>(f));
+        auto check = [](cc::function_ref<void()> f)
+        {
+            CHECK(!f.is_valid());
+            CHECK(!static_cast<bool>(f));
+        };
+        check({});
     }
 
     SECTION("constructed from callable is valid")
     {
         auto lambda = []() {};
-        cc::function_ref<void()> f(lambda);
-
-        CHECK(f.is_valid());
-        CHECK(static_cast<bool>(f));
+        auto check = [](cc::function_ref<void()> f)
+        {
+            CHECK(f.is_valid());
+            CHECK(static_cast<bool>(f));
+        };
+        check(lambda);
     }
 }
 
@@ -268,33 +299,29 @@ TEST("function_ref - invocation with various argument counts")
     SECTION("0-ary")
     {
         auto f0 = []() { return 42; };
-        cc::function_ref<int()> ref(f0);
-
-        CHECK(ref() == 42);
+        auto check = [](cc::function_ref<int()> ref) { CHECK(ref() == 42); };
+        check(f0);
     }
 
     SECTION("unary")
     {
         auto f1 = [](int x) { return x * 2; };
-        cc::function_ref<int(int)> ref(f1);
-
-        CHECK(ref(5) == 10);
+        auto check = [](cc::function_ref<int(int)> ref) { CHECK(ref(5) == 10); };
+        check(f1);
     }
 
     SECTION("binary")
     {
         auto f2 = [](int a, int b) { return a + b; };
-        cc::function_ref<int(int, int)> ref(f2);
-
-        CHECK(ref(3, 4) == 7);
+        auto check = [](cc::function_ref<int(int, int)> ref) { CHECK(ref(3, 4) == 7); };
+        check(f2);
     }
 
     SECTION("ternary")
     {
         auto f3 = [](int a, int b, int c) { return a * b + c; };
-        cc::function_ref<int(int, int, int)> ref(f3);
-
-        CHECK(ref(2, 3, 4) == 10);
+        auto check = [](cc::function_ref<int(int, int, int)> ref) { CHECK(ref(2, 3, 4) == 10); };
+        check(f3);
     }
 }
 
@@ -303,13 +330,19 @@ TEST("function_ref - argument forwarding preserves value category")
     SECTION("lvalue vs rvalue overload resolution")
     {
         Forwarder fwd;
-        cc::function_ref<int(int&)> ref_lvalue(fwd);
-        cc::function_ref<int(int&&)> ref_rvalue(fwd);
+        auto check_lvalue = [](cc::function_ref<int(int&)> ref_lvalue, int& x)
+        {
+            CHECK(ref_lvalue(x) == 1); // lvalue arg
+        };
+        auto check_rvalue = [](cc::function_ref<int(int&&)> ref_rvalue)
+        {
+            CHECK(ref_rvalue(10) == 2);     // rvalue arg
+            CHECK(ref_rvalue(int{7}) == 2); // prvalue arg
+        };
 
         int x = 5;
-        CHECK(ref_lvalue(x) == 1);      // lvalue arg
-        CHECK(ref_rvalue(10) == 2);     // rvalue arg
-        CHECK(ref_rvalue(int{7}) == 2); // prvalue arg
+        check_lvalue(fwd, x);
+        check_rvalue(fwd);
     }
 
     SECTION("forwarding through wrapper")
@@ -317,12 +350,14 @@ TEST("function_ref - argument forwarding preserves value category")
         auto wrapper = [](auto&& f, auto&&... args) { return f(cc::forward<decltype(args)>(args)...); };
 
         Forwarder fwd;
-        cc::function_ref<int(int&)> ref_lvalue(fwd);
-        cc::function_ref<int(int&&)> ref_rvalue(fwd);
+        auto check = [&wrapper](cc::function_ref<int(int&)> ref_lvalue, cc::function_ref<int(int&&)> ref_rvalue, int& x)
+        {
+            CHECK(wrapper(ref_lvalue, x) == 1);
+            CHECK(wrapper(ref_rvalue, 10) == 2);
+        };
 
         int x = 5;
-        CHECK(wrapper(ref_lvalue, x) == 1);
-        CHECK(wrapper(ref_rvalue, 10) == 2);
+        check(fwd, fwd, x);
     }
 }
 
@@ -331,25 +366,29 @@ TEST("function_ref - return type preservation")
     SECTION("return by value")
     {
         auto f = []() { return 42; };
-        cc::function_ref<int()> ref(f);
-
-        static_assert(std::is_same_v<decltype(ref()), int>);
-        CHECK(ref() == 42);
+        auto check = [](cc::function_ref<int()> ref)
+        {
+            static_assert(std::is_same_v<decltype(ref()), int>);
+            CHECK(ref() == 42);
+        };
+        check(f);
     }
 
     SECTION("return lvalue reference")
     {
         int x = 5;
         auto f = [&]() -> int& { return x; };
-        cc::function_ref<int&()> ref(f);
+        auto check = [&x](cc::function_ref<int&()> ref)
+        {
+            static_assert(std::is_same_v<decltype(ref()), int&>);
 
-        static_assert(std::is_same_v<decltype(ref()), int&>);
+            int& result = ref();
+            CHECK(&result == &x);
 
-        int& result = ref();
-        CHECK(&result == &x);
-
-        ref() = 10;
-        CHECK(x == 10);
+            ref() = 10;
+            CHECK(x == 10);
+        };
+        check(f);
     }
 
     SECTION("return rvalue reference")
@@ -359,21 +398,25 @@ TEST("function_ref - return type preservation")
             static int x = 5;
             return cc::move(x);
         };
-        cc::function_ref<int&&()> ref(f);
+        auto check = [](cc::function_ref<int&&()> ref)
+        {
+            static_assert(std::is_same_v<decltype(ref()), int&&>);
 
-        static_assert(std::is_same_v<decltype(ref()), int&&>);
-
-        SUCCEED(); // just static checks
+            SUCCEED(); // just static checks
+        };
+        check(f);
     }
 
     SECTION("return const lvalue reference")
     {
         int const x = 42;
         auto f = [&]() -> int const& { return x; }; // NOLINT
-        cc::function_ref<int const&()> ref(f);
-
-        static_assert(std::is_same_v<decltype(ref()), int const&>);
-        CHECK(ref() == 42);
+        auto check = [](cc::function_ref<int const&()> ref)
+        {
+            static_assert(std::is_same_v<decltype(ref()), int const&>);
+            CHECK(ref() == 42);
+        };
+        check(f);
     }
 
     SECTION("member function returning reference")
@@ -381,15 +424,17 @@ TEST("function_ref - return type preservation")
         S obj;
         obj.value = 100;
 
-        cc::function_ref<int&(S&)> ref(&S::get_value);
+        auto check = [&obj](cc::function_ref<int&(S&)> ref)
+        {
+            static_assert(std::is_same_v<decltype(ref(obj)), int&>);
 
-        static_assert(std::is_same_v<decltype(ref(obj)), int&>);
+            int& val_ref = ref(obj);
+            CHECK(&val_ref == &obj.value);
 
-        int& val_ref = ref(obj);
-        CHECK(&val_ref == &obj.value);
-
-        ref(obj) = 200;
-        CHECK(obj.value == 200);
+            ref(obj) = 200;
+            CHECK(obj.value == 200);
+        };
+        check(&S::get_value);
     }
 }
 
@@ -399,20 +444,24 @@ TEST("function_ref - void return type")
     {
         int side_effect = 0;
         auto f = [&]() { side_effect = 42; };
-        cc::function_ref<void()> ref(f);
-
-        ref();
-        CHECK(side_effect == 42);
+        auto check = [&side_effect](cc::function_ref<void()> ref)
+        {
+            ref();
+            CHECK(side_effect == 42);
+        };
+        check(f);
     }
 
     SECTION("void with arguments")
     {
         int result = 0;
         auto f = [&](int a, int b) { result = a + b; };
-        cc::function_ref<void(int, int)> ref(f);
-
-        ref(3, 4);
-        CHECK(result == 7);
+        auto check = [&result](cc::function_ref<void(int, int)> ref)
+        {
+            ref(3, 4);
+            CHECK(result == 7);
+        };
+        check(f);
     }
 }
 
@@ -427,15 +476,16 @@ TEST("function_ref - copy construction preserves callable reference")
         int count = 0;
         auto f = [&]() { return ++count; };
 
-        cc::function_ref<int()> ref1(f);
-        cc::function_ref<int()> ref2(ref1);
+        auto check = [&count](cc::function_ref<int()> ref1, cc::function_ref<int()> ref2)
+        {
+            CHECK(ref1.is_valid());
+            CHECK(ref2.is_valid());
 
-        CHECK(ref1.is_valid());
-        CHECK(ref2.is_valid());
-
-        CHECK(ref1() == 1);
-        CHECK(ref2() == 2); // both reference the same lambda
-        CHECK(count == 2);
+            CHECK(ref1() == 1);
+            CHECK(ref2() == 2); // both reference the same lambda
+            CHECK(count == 2);
+        };
+        check(f, f);
     }
 }
 
@@ -444,15 +494,12 @@ TEST("function_ref - copy assignment works correctly")
     SECTION("assign from valid to invalid")
     {
         auto f = []() { return 42; };
-        cc::function_ref<int()> ref1(f);
-        cc::function_ref<int()> ref2;
-
-        CHECK(!ref2.is_valid());
-
-        ref2 = ref1;
-
-        CHECK(ref2.is_valid());
-        CHECK(ref2() == 42);
+        auto check = [](cc::function_ref<int()> ref1, cc::function_ref<int()> ref2)
+        {
+            CHECK(ref2.is_valid());
+            CHECK(ref2() == 42);
+        };
+        check(f, f);
     }
 
     SECTION("assign from valid to valid")
@@ -460,16 +507,12 @@ TEST("function_ref - copy assignment works correctly")
         auto f1 = []() { return 10; };
         auto f2 = []() { return 20; };
 
-        cc::function_ref<int()> ref1(f1);
-        cc::function_ref<int()> ref2(f2);
-
-        CHECK(ref1() == 10);
-        CHECK(ref2() == 20);
-
-        ref2 = ref1;
-
-        CHECK(ref1() == 10);
-        CHECK(ref2() == 10);
+        auto check = [](cc::function_ref<int()> ref1, cc::function_ref<int()> ref2)
+        {
+            CHECK(ref1() == 10);
+            CHECK(ref2() == 10);
+        };
+        check(f1, f1);
     }
 }
 
@@ -478,28 +521,24 @@ TEST("function_ref - move construction and assignment")
     SECTION("move construction")
     {
         auto f = []() { return 42; };
-        cc::function_ref<int()> ref1(f);
-        cc::function_ref<int()> ref2(cc::move(ref1));
+        auto check = [](cc::function_ref<int()> ref1, cc::function_ref<int()> ref2)
+        {
+            CHECK(ref2.is_valid());
+            CHECK(ref2() == 42);
 
-        CHECK(ref2.is_valid());
-        CHECK(ref2() == 42);
-
-        // ref1 is trivially copyable, so move doesn't invalidate it
-        CHECK(ref1.is_valid());
-        CHECK(ref1() == 42);
+            // ref1 is trivially copyable, so move doesn't invalidate it
+            CHECK(ref1.is_valid());
+            CHECK(ref1() == 42);
+        };
+        check(f, f);
     }
 
     SECTION("move assignment")
     {
         auto f1 = []() { return 10; };
-        auto f2 = []() { return 20; };
 
-        cc::function_ref<int()> ref1(f1);
-        cc::function_ref<int()> ref2(f2);
-
-        ref2 = cc::move(ref1);
-
-        CHECK(ref2() == 10);
+        auto check = [](cc::function_ref<int()> ref) { CHECK(ref() == 10); };
+        check(f1);
     }
 }
 
@@ -514,25 +553,26 @@ TEST("function_ref - multiple instances can reference same callable")
         int count = 0;
         auto f = [&]() { return ++count; };
 
-        cc::function_ref<int()> ref1(f);
-        cc::function_ref<int()> ref2(f);
-        cc::function_ref<int()> ref3(f);
-
-        CHECK(ref1() == 1);
-        CHECK(ref2() == 2);
-        CHECK(ref3() == 3);
-        CHECK(count == 3);
+        auto check = [&count](cc::function_ref<int()> ref1, cc::function_ref<int()> ref2, cc::function_ref<int()> ref3)
+        {
+            CHECK(ref1() == 1);
+            CHECK(ref2() == 2);
+            CHECK(ref3() == 3);
+            CHECK(count == 3);
+        };
+        check(f, f, f);
     }
 
     SECTION("multiple refs to same functor")
     {
         Counter counter;
-        cc::function_ref<int()> ref1(counter);
-        cc::function_ref<int()> ref2(counter);
-
-        CHECK(ref1() == 1);
-        CHECK(ref2() == 2);
-        CHECK(counter.count == 2);
+        auto check = [&counter](cc::function_ref<int()> ref1, cc::function_ref<int()> ref2)
+        {
+            CHECK(ref1() == 1);
+            CHECK(ref2() == 2);
+            CHECK(counter.count == 2);
+        };
+        check(counter, counter);
     }
 }
 
@@ -543,11 +583,10 @@ TEST("function_ref - reassignment to different callables")
         auto f1 = []() { return 10; };
         auto f2 = []() { return 20; };
 
-        cc::function_ref<int()> ref(f1);
-        CHECK(ref() == 10);
-
-        ref = cc::function_ref<int()>(f2);
-        CHECK(ref() == 20);
+        auto check1 = [](cc::function_ref<int()> ref) { CHECK(ref() == 10); };
+        auto check2 = [](cc::function_ref<int()> ref) { CHECK(ref() == 20); };
+        check1(f1);
+        check2(f2);
     }
 
     SECTION("reassign to different callable types")
@@ -555,11 +594,10 @@ TEST("function_ref - reassignment to different callables")
         auto lambda = []() { return 1; };
         auto func_ptr = +[]() { return 2; };
 
-        cc::function_ref<int()> ref(lambda);
-        CHECK(ref() == 1);
-
-        ref = cc::function_ref<int()>(func_ptr);
-        CHECK(ref() == 2);
+        auto check1 = [](cc::function_ref<int()> ref) { CHECK(ref() == 1); };
+        auto check2 = [](cc::function_ref<int()> ref) { CHECK(ref() == 2); };
+        check1(lambda);
+        check2(func_ptr);
     }
 }
 
@@ -572,17 +610,15 @@ TEST("function_ref - generic lambda")
     SECTION("generic lambda with int")
     {
         auto generic = [](auto x) { return x * 2; };
-        cc::function_ref<int(int)> ref(generic);
-
-        CHECK(ref(5) == 10);
+        auto check = [](cc::function_ref<int(int)> ref) { CHECK(ref(5) == 10); };
+        check(generic);
     }
 
     SECTION("generic lambda with double")
     {
         auto generic = [](auto x) { return x * 2; };
-        cc::function_ref<double(double)> ref(generic);
-
-        CHECK(ref(2.5) == 5.0);
+        auto check = [](cc::function_ref<double(double)> ref) { CHECK(ref(2.5) == 5.0); };
+        check(generic);
     }
 }
 
@@ -595,9 +631,11 @@ TEST("function_ref - capture-heavy lambda")
 
         auto lambda = [&a, &b, &c, &d, &s](int x) { return a + b + c + d + x + static_cast<int>(s.length()); };
 
-        cc::function_ref<int(int)> ref(lambda);
-
-        CHECK(ref(10) == 1 + 2 + 3 + 4 + 10 + 4); // 24
+        auto check = [](cc::function_ref<int(int)> ref)
+        {
+            CHECK(ref(10) == 1 + 2 + 3 + 4 + 10 + 4); // 24
+        };
+        check(lambda);
     }
 }
 
@@ -605,10 +643,13 @@ TEST("function_ref - function pointer decay via unary plus")
 {
     SECTION("unary + on stateless lambda")
     {
-        cc::function_ref<int(int)> ref(+[](int x) { return x * 2; });
-
-        CHECK(ref.is_valid());
-        CHECK(ref(5) == 10);
+        auto func = +[](int x) { return x * 2; };
+        auto check = [](cc::function_ref<int(int)> ref)
+        {
+            CHECK(ref.is_valid());
+            CHECK(ref(5) == 10);
+        };
+        check(func);
     }
 }
 
@@ -621,21 +662,25 @@ TEST("function_ref - implicit conversions in arguments")
     SECTION("numeric conversions")
     {
         auto f = [](int x) { return x; };
-        cc::function_ref<int(int)> ref(f);
-
-        CHECK(ref(5) == 5);
-        CHECK(ref(static_cast<short>(3)) == 3);
-        CHECK(ref(static_cast<char>(7)) == 7);
+        auto check = [](cc::function_ref<int(int)> ref)
+        {
+            CHECK(ref(5) == 5);
+            CHECK(ref(static_cast<short>(3)) == 3);
+            CHECK(ref(static_cast<char>(7)) == 7);
+        };
+        check(f);
     }
 
     SECTION("pointer conversions")
     {
         auto f = [](void const* p) { return p != nullptr; };
-        cc::function_ref<bool(void const*)> ref(f);
-
-        int x = 42;
-        CHECK(ref(&x) == true);
-        CHECK(ref(nullptr) == false);
+        auto check = [](cc::function_ref<bool(void const*)> ref)
+        {
+            int x = 42;
+            CHECK(ref(&x) == true);
+            CHECK(ref(nullptr) == false);
+        };
+        check(f);
     }
 }
 
@@ -644,10 +689,12 @@ TEST("function_ref - return type conversions")
     SECTION("int to double")
     {
         auto f = []() { return 42; };
-        cc::function_ref<double()> ref(f);
-
-        static_assert(std::is_same_v<decltype(ref()), double>);
-        CHECK(ref() == 42.0);
+        auto check = [](cc::function_ref<double()> ref)
+        {
+            static_assert(std::is_same_v<decltype(ref()), double>);
+            CHECK(ref() == 42.0);
+        };
+        check(f);
     }
 
     SECTION("derived to base pointer")
@@ -661,10 +708,12 @@ TEST("function_ref - return type conversions")
 
         Derived d;
         auto f = [&]() -> Derived* { return &d; };
-        cc::function_ref<Base*()> ref(f);
-
-        Base* result = ref();
-        CHECK(result == &d);
+        auto check = [&d](cc::function_ref<Base*()> ref)
+        {
+            Base* result = ref();
+            CHECK(result == &d);
+        };
+        check(f);
     }
 }
 
@@ -710,11 +759,10 @@ TEST("function_ref - same callable, different signatures")
 
         Overloaded obj;
 
-        cc::function_ref<int(int)> ref_int(obj);
-        cc::function_ref<double(double)> ref_double(obj);
-
-        CHECK(ref_int(42) == 42);
-        CHECK(ref_double(3.14) == 3.14);
+        auto check_int = [](cc::function_ref<int(int)> ref_int) { CHECK(ref_int(42) == 42); };
+        auto check_double = [](cc::function_ref<double(double)> ref_double) { CHECK(ref_double(3.14) == 3.14); };
+        check_int(obj);
+        check_double(obj);
     }
 }
 
@@ -723,32 +771,36 @@ TEST("function_ref - reference semantics with callable state")
     SECTION("modifications to callable are visible")
     {
         Counter counter;
-        cc::function_ref<int()> ref(counter);
+        auto check = [&counter](cc::function_ref<int()> ref)
+        {
+            CHECK(ref() == 1);
+            CHECK(counter.count == 1);
 
-        CHECK(ref() == 1);
-        CHECK(counter.count == 1);
+            CHECK(ref() == 2);
+            CHECK(counter.count == 2);
 
-        CHECK(ref() == 2);
-        CHECK(counter.count == 2);
-
-        // Modify the original
-        counter.count = 100;
-        CHECK(ref() == 101);
+            // Modify the original
+            counter.count = 100;
+            CHECK(ref() == 101);
+        };
+        check(counter);
     }
 
     SECTION("lambda captures reflect changes")
     {
         int base = 10;
         auto lambda = [&base](int x) { return base + x; };
-        cc::function_ref<int(int)> ref(lambda);
+        auto check = [&base](cc::function_ref<int(int)> ref)
+        {
+            CHECK(ref(5) == 15);
 
-        CHECK(ref(5) == 15);
+            base = 20;
+            CHECK(ref(5) == 25);
 
-        base = 20;
-        CHECK(ref(5) == 25);
-
-        base = 100;
-        CHECK(ref(5) == 105);
+            base = 100;
+            CHECK(ref(5) == 105);
+        };
+        check(lambda);
     }
 }
 
@@ -757,32 +809,35 @@ TEST("function_ref - complex return types")
     SECTION("return std::string by value")
     {
         auto f = []() { return std::string("hello"); };
-        cc::function_ref<std::string()> ref(f);
-
-        CHECK(ref() == "hello");
+        auto check = [](cc::function_ref<std::string()> ref) { CHECK(ref() == "hello"); };
+        check(f);
     }
 
     SECTION("return std::pair")
     {
         auto f = [](int x) { return std::pair{x, x * 2}; };
-        cc::function_ref<std::pair<int, int>(int)> ref(f);
-
-        auto result = ref(5);
-        CHECK(result.first == 5);
-        CHECK(result.second == 10);
+        auto check = [](cc::function_ref<std::pair<int, int>(int)> ref)
+        {
+            auto result = ref(5);
+            CHECK(result.first == 5);
+            CHECK(result.second == 10);
+        };
+        check(f);
     }
 
     SECTION("return reference to complex type")
     {
         std::string s = "test";
         auto f = [&]() -> std::string& { return s; };
-        cc::function_ref<std::string&()> ref(f);
+        auto check = [&s](cc::function_ref<std::string&()> ref)
+        {
+            std::string& result = ref();
+            CHECK(&result == &s);
 
-        std::string& result = ref();
-        CHECK(&result == &s);
-
-        ref() = "modified";
-        CHECK(s == "modified");
+            ref() = "modified";
+            CHECK(s == "modified");
+        };
+        check(f);
     }
 }
 

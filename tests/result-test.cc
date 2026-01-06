@@ -274,22 +274,22 @@ TEST("result - non-trivial types")
 
     SECTION("string values")
     {
-        auto res = cc::result<std::string, int>{"hello"};
+        auto res = cc::result<cc::string, int>{"hello"};
         CHECK(res.has_value());
         CHECK(res.value() == "hello");
 
-        res = cc::result<std::string, int>{cc::error(42)};
+        res = cc::result<cc::string, int>{cc::error(42)};
         CHECK(res.has_error());
         CHECK(res.error() == 42);
     }
 
     SECTION("string errors")
     {
-        auto res = cc::result<int, std::string>{42};
+        auto res = cc::result<int, cc::string>{42};
         CHECK(res.has_value());
         CHECK(res.value() == 42);
 
-        res = cc::result<int, std::string>{cc::error(std::string{"error"})};
+        res = cc::result<int, cc::string>{cc::error(cc::string{"error"})};
         CHECK(res.has_error());
         CHECK(res.error() == "error");
     }
@@ -483,14 +483,14 @@ TEST("result - value and error observers")
 
     SECTION("value preserves category - const")
     {
-        auto const res = cc::result<std::string, int>{"hello"};
+        auto const res = cc::result<cc::string, int>{"hello"};
         auto const& ref = res.value();
         CHECK(ref == "hello");
     }
 
     SECTION("value preserves category - mutable")
     {
-        auto res = cc::result<std::string, int>{"hello"};
+        auto res = cc::result<cc::string, int>{"hello"};
         res.value() += " world";
         CHECK(res.value() == "hello world");
     }
@@ -591,19 +591,23 @@ TEST("result - emplace_value and emplace_error")
 
     SECTION("emplace_value with multiple arguments")
     {
-        auto res = cc::result<std::string, int>{cc::error(0)};
-        auto& ref = res.emplace_value(5, 'x');
+        bool destroyed = false;
+        auto res = cc::result<non_trivial, int>{cc::error(0)};
+        auto& ref = res.emplace_value(42, &destroyed);
         CHECK(res.has_value());
-        CHECK(res.value() == "xxxxx");
+        CHECK(res.value().value == 42);
+        CHECK(res.value().destroyed == &destroyed);
         CHECK(&ref == &res.value());
     }
 
     SECTION("emplace_error with multiple arguments")
     {
-        auto res = cc::result<int, std::string>{42};
-        auto& ref = res.emplace_error(5, 'x');
+        bool destroyed = false;
+        auto res = cc::result<int, non_trivial>{99};
+        auto& ref = res.emplace_error(42, &destroyed);
         CHECK(res.has_error());
-        CHECK(res.error() == "xxxxx");
+        CHECK(res.error().value == 42);
+        CHECK(res.error().destroyed == &destroyed);
         CHECK(&ref == &res.error());
     }
 
@@ -694,7 +698,7 @@ TEST("result - usage patterns")
 
     SECTION("function returning result - success")
     {
-        auto divide = [](int a, int b) -> cc::result<int, std::string>
+        auto divide = [](int a, int b) -> cc::result<int, cc::string>
         {
             if (b == 0)
                 return cc::error("division by zero");
@@ -708,7 +712,7 @@ TEST("result - usage patterns")
 
     SECTION("function returning result - error")
     {
-        auto divide = [](int a, int b) -> cc::result<int, std::string>
+        auto divide = [](int a, int b) -> cc::result<int, cc::string>
         {
             if (b == 0)
                 return cc::error("division by zero");
@@ -722,10 +726,10 @@ TEST("result - usage patterns")
 
     SECTION("early return on error")
     {
-        auto parse_and_validate = [](bool should_fail) -> cc::result<int, std::string>
+        auto parse_and_validate = [](bool should_fail) -> cc::result<int, cc::string>
         {
             // simulate parsing
-            auto parse_result = [&]() -> cc::result<int, std::string>
+            auto parse_result = [&]() -> cc::result<int, cc::string>
             {
                 if (should_fail)
                     return cc::error("parse error");
@@ -753,7 +757,7 @@ TEST("result - usage patterns")
 
     SECTION("value_or for default fallback")
     {
-        auto get_config = [](bool use_default) -> cc::result<int, std::string>
+        auto get_config = [](bool use_default) -> cc::result<int, cc::string>
         {
             if (use_default)
                 return cc::error("config not found");
@@ -1022,7 +1026,7 @@ TEST("result - source location capture")
 
     SECTION("result<T, E> to result<T> conversion captures location")
     {
-        auto make_typed_error = []() -> cc::result<int, std::string> { return cc::error("typed error"); };
+        auto make_typed_error = []() -> cc::result<int, cc::string> { return cc::error("typed error"); };
 
         auto before = cc::source_location::current();
         auto res = cc::result<int>{make_typed_error()};

@@ -143,6 +143,14 @@ template <class E>
 {
     return as_error_t<std::decay_t<E>>(cc::forward<E>(e), s);
 }
+// NOTE: overload for string literals to prevent decay to char const*
+//       (ensures to_debug_string sees string_view, not char const*)
+template <size_t N>
+[[nodiscard]] constexpr as_error_t<cc::string_view> error(char const (&str)[N],
+                                                          cc::source_location s = cc::source_location::current())
+{
+    return as_error_t<cc::string_view>(cc::string_view(str, isize(N - 1)), s);
+}
 } // namespace cc
 
 // =========================================================================================================

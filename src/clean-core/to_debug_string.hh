@@ -84,7 +84,16 @@ template <class T>
             return "<nullptr>";
     }
 
-    if constexpr (requires { cc::string_view(v); })
+    // NOTE: this includes "char const*" for which we cannot be sure it's null-terminated!
+    if constexpr (std::is_pointer_v<T>)
+    {
+        if (v == nullptr)
+            return "<nullptr>";
+
+        // print address, not contents
+        return cc::string(std::format("ptr(0x{:X})", (uintptr_t)v));
+    }
+    else if constexpr (requires { cc::string_view(v); })
     {
         // TODO: better capacity
         auto s = cc::string("\"");
