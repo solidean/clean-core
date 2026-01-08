@@ -1260,3 +1260,514 @@ TEST("result - with_context_lazy on result<T>")
         CHECK(res.error().to_string().contains("lazy context"));
     }
 }
+
+TEST("result - CC_RETURN_IF_ERROR - basic usage")
+{
+    SECTION("success path - no early return")
+    {
+        auto inner = []() -> cc::result<int, cc::string> { return 42; };
+
+        auto outer = [&]() -> cc::result<int, cc::string>
+        {
+            auto res = inner();
+            CC_RETURN_IF_ERROR(res);
+            return res.value() * 2;
+        };
+
+        auto result = outer();
+        CHECK(result.has_value());
+        CHECK(result.value() == 84);
+    }
+
+    SECTION("error path - early return")
+    {
+        auto inner = []() -> cc::result<int, cc::string> { return cc::error("inner error"); };
+
+        auto outer = [&]() -> cc::result<int, cc::string>
+        {
+            auto res = inner();
+            CC_RETURN_IF_ERROR(res);
+            return 999; // should not reach here
+        };
+
+        auto result = outer();
+        CHECK(result.has_error());
+        CHECK(result.error() == "inner error");
+    }
+
+    SECTION("inline expression - success")
+    {
+        auto inner = []() -> cc::result<int, cc::string> { return 42; };
+
+        auto outer = [&]() -> cc::result<int, cc::string>
+        {
+            CC_RETURN_IF_ERROR(inner());
+            // Note: inner() was consumed, so we can't use its value
+            return 100;
+        };
+
+        auto result = outer();
+        CHECK(result.has_value());
+        CHECK(result.value() == 100);
+    }
+
+    SECTION("inline expression - error")
+    {
+        auto inner = []() -> cc::result<int, cc::string> { return cc::error("inline error"); };
+
+        auto outer = [&]() -> cc::result<int, cc::string>
+        {
+            CC_RETURN_IF_ERROR(inner());
+            return 999; // should not reach here
+        };
+
+        auto result = outer();
+        CHECK(result.has_error());
+        CHECK(result.error() == "inline error");
+    }
+}
+
+TEST("result - CC_RETURN_IF_ERROR - with_context chaining")
+{
+    SECTION("basic context chaining")
+    {
+        auto inner = []() -> cc::result<int> { return cc::error("inner error"); };
+
+        auto outer = [&]() -> cc::result<int>
+        {
+            auto res = inner();
+            CC_RETURN_IF_ERROR(res).with_context("outer context");
+            return res.value();
+        };
+
+        auto result = outer();
+        CHECK(result.has_error());
+        auto err_str = result.error().to_string();
+        CHECK(err_str.contains("inner error"));
+        CHECK(err_str.contains("outer context"));
+    }
+
+    SECTION("multiple context layers")
+    {
+        auto layer1 = []() -> cc::result<int> { return cc::error("layer1 error"); };
+
+        auto layer2 = [&]() -> cc::result<int>
+        {
+            auto res = layer1();
+            CC_RETURN_IF_ERROR(res).with_context("layer2 context");
+            return res.value();
+        };
+
+        auto layer3 = [&]() -> cc::result<int>
+        {
+            auto res = layer2();
+            CC_RETURN_IF_ERROR(res).with_context("layer3 context");
+            return res.value();
+        };
+
+        auto result = layer3();
+        CHECK(result.has_error());
+        auto err_str = result.error().to_string();
+        CHECK(err_str.contains("layer1 error"));
+        CHECK(err_str.contains("layer2 context"));
+        CHECK(err_str.contains("layer3 context"));
+    }
+
+    SECTION("with_context on success path does nothing")
+    {
+        auto inner = []() -> cc::result<int> { return 42; };
+
+        auto outer = [&]() -> cc::result<int>
+        {
+            auto res = inner();
+            CC_RETURN_IF_ERROR(res).with_context("this context is never used");
+            return res.value() * 2;
+        };
+
+        auto result = outer();
+        CHECK(result.has_value());
+        CHECK(result.value() == 84);
+    }
+}
+
+TEST("result - CC_RETURN_IF_ERROR - type conversions")
+{
+    SECTION("typed error to any_error")
+    {
+        auto inner = []() -> cc::result<int, cc::string> { return cc::error("typed error"); };
+
+        auto outer = [&]() -> cc::result<int> // any_error is default
+        {
+            auto res = inner();
+            CC_RETURN_IF_ERROR(res).with_context("outer context");
+            return res.value();
+        };
+
+        auto result = outer();
+        CHECK(result.has_error());
+        auto err_str = result.error().to_string();
+        CHECK(err_str.contains("typed error"));
+        CHECK(err_str.contains("outer context"));
+    }
+
+    SECTION("different value types - same error type")
+    {
+        auto inner = []() -> cc::result<int, cc::string> { return cc::error("error message"); };
+
+        auto outer = [&]() -> cc::result<cc::string, cc::string>
+        {
+            auto res = inner();
+            CC_RETURN_IF_ERROR(res);
+            // This would return a string, but we never get here
+            return cc::string("should not reach");
+        };
+
+        auto result = outer();
+        CHECK(result.has_error());
+        CHECK(result.error() == "error message");
+    }
+
+    SECTION("int error to long error")
+    {
+        auto inner = []() -> cc::result<int, int> { return cc::error(42); };
+
+        auto outer = [&]() -> cc::result<long, long>
+        {
+            auto res = inner();
+            CC_RETURN_IF_ERROR(res);
+            return 999L;
+        };
+
+        auto result = outer();
+        CHECK(result.has_error());
+        CHECK(result.error() == 42L);
+    }
+
+    SECTION("custom error type to any_error")
+    {
+        struct custom_error
+        {
+            int code;
+            cc::string message;
+        };
+
+        auto inner = [](bool fail) -> cc::result<int, custom_error>
+        {
+            if (fail)
+                return cc::error(custom_error{404, "not found"});
+            return 42;
+        };
+
+        auto outer = [&]() -> cc::result<int>
+        {
+            auto res = inner(true);
+            CC_RETURN_IF_ERROR(res).with_context("failed to process");
+            return res.value();
+        };
+
+        auto result = outer();
+        CHECK(result.has_error());
+        // custom_error should be converted to debug string by any_error
+        CHECK(!result.error().is_empty());
+    }
+}
+
+TEST("result - CC_RETURN_IF_ERROR - single evaluation")
+{
+    SECTION("expression evaluated exactly once")
+    {
+        int call_count = 0;
+        auto tracked_fn = [&]() -> cc::result<int, cc::string>
+        {
+            ++call_count;
+            return cc::error("error");
+        };
+
+        auto outer = [&]() -> cc::result<int, cc::string>
+        {
+            CC_RETURN_IF_ERROR(tracked_fn());
+            return 999;
+        };
+
+        auto result = outer();
+        CHECK(call_count == 1); // Should only be called once
+        CHECK(result.has_error());
+    }
+}
+
+TEST("result - CC_RETURN_IF_ERROR - move semantics")
+{
+    SECTION("error is moved, not copied")
+    {
+        auto inner = []() -> cc::result<int, move_only> { return cc::error(move_only{42}); };
+
+        auto outer = [&]() -> cc::result<int, move_only>
+        {
+            auto res = inner();
+            CC_RETURN_IF_ERROR(res);
+            return 999;
+        };
+
+        auto result = outer();
+        CHECK(result.has_error());
+        CHECK(result.error().value == 42);
+    }
+
+    SECTION("value in result not accessed on error path")
+    {
+        auto inner = []() -> cc::result<move_only, cc::string> { return cc::error("error"); };
+
+        auto outer = [&]() -> cc::result<move_only, cc::string>
+        {
+            auto res = inner();
+            CC_RETURN_IF_ERROR(res);
+            return move_only{999};
+        };
+
+        auto result = outer();
+        CHECK(result.has_error());
+        CHECK(result.error() == "error");
+    }
+
+    SECTION("any_error moved through layers")
+    {
+        auto layer1 = []() -> cc::result<int> { return cc::error("original error"); };
+
+        auto layer2 = [&]() -> cc::result<int>
+        {
+            auto res = layer1();
+            CC_RETURN_IF_ERROR(res).with_context("layer2");
+            return res.value();
+        };
+
+        auto layer3 = [&]() -> cc::result<int>
+        {
+            auto res = layer2();
+            CC_RETURN_IF_ERROR(res).with_context("layer3");
+            return res.value();
+        };
+
+        auto result = layer3();
+        CHECK(result.has_error());
+        auto err_str = result.error().to_string();
+        CHECK(err_str.contains("original error"));
+        CHECK(err_str.contains("layer2"));
+        CHECK(err_str.contains("layer3"));
+    }
+}
+
+TEST("result - CC_RETURN_IF_ERROR - edge cases")
+{
+    SECTION("empty any_error")
+    {
+        auto inner = []() -> cc::result<int> { return cc::error(cc::any_error{}); };
+
+        auto outer = [&]() -> cc::result<int>
+        {
+            auto res = inner();
+            CC_RETURN_IF_ERROR(res).with_context("added context");
+            return res.value();
+        };
+
+        auto result = outer();
+        CHECK(result.has_error());
+        // Empty error should still accept context
+        auto err_str = result.error().to_string();
+        CHECK(err_str.contains("added context"));
+    }
+
+    SECTION("multiple consecutive checks")
+    {
+        auto fn1 = [](bool fail) -> cc::result<int, cc::string>
+        { return fail ? cc::error("fn1 error") : cc::result<int, cc::string>{10}; };
+
+        auto fn2 = [](bool fail) -> cc::result<int, cc::string>
+        { return fail ? cc::error("fn2 error") : cc::result<int, cc::string>{20}; };
+
+        auto fn3 = [](bool fail) -> cc::result<int, cc::string>
+        { return fail ? cc::error("fn3 error") : cc::result<int, cc::string>{30}; };
+
+        auto outer = [&](bool f1, bool f2, bool f3) -> cc::result<int, cc::string>
+        {
+            auto r1 = fn1(f1);
+            CC_RETURN_IF_ERROR(r1);
+
+            auto r2 = fn2(f2);
+            CC_RETURN_IF_ERROR(r2);
+
+            auto r3 = fn3(f3);
+            CC_RETURN_IF_ERROR(r3);
+
+            return r1.value() + r2.value() + r3.value();
+        };
+
+        // All succeed
+        auto res1 = outer(false, false, false);
+        CHECK(res1.has_value());
+        CHECK(res1.value() == 60);
+
+        // First fails
+        auto res2 = outer(true, false, false);
+        CHECK(res2.has_error());
+        CHECK(res2.error() == "fn1 error");
+
+        // Second fails
+        auto res3 = outer(false, true, false);
+        CHECK(res3.has_error());
+        CHECK(res3.error() == "fn2 error");
+
+        // Third fails
+        auto res4 = outer(false, false, true);
+        CHECK(res4.has_error());
+        CHECK(res4.error() == "fn3 error");
+    }
+
+    SECTION("nested function calls")
+    {
+        auto innermost = []() -> cc::result<int> { return cc::error("innermost error"); };
+
+        auto middle = [&]() -> cc::result<int>
+        {
+            auto res = innermost();
+            CC_RETURN_IF_ERROR(res).with_context("middle layer");
+            return res.value();
+        };
+
+        auto outer = [&]() -> cc::result<int>
+        {
+            auto res = middle();
+            CC_RETURN_IF_ERROR(res).with_context("outer layer");
+            return res.value();
+        };
+
+        auto result = outer();
+        CHECK(result.has_error());
+        auto err_str = result.error().to_string();
+        CHECK(err_str.contains("innermost error"));
+        CHECK(err_str.contains("middle layer"));
+        CHECK(err_str.contains("outer layer"));
+    }
+}
+
+TEST("result - CC_RETURN_IF_ERROR - real-world patterns")
+{
+    SECTION("database-style operations")
+    {
+        auto connect_db = [](bool succeed) -> cc::result<int> // connection id
+        { return succeed ? cc::result<int>{42} : cc::error("connection failed"); };
+
+        auto query_db = [](int conn_id, bool succeed) -> cc::result<cc::string>
+        { return succeed ? cc::result<cc::string>{"query result"} : cc::error("query failed"); };
+
+        auto fetch_user = [&](bool conn_ok, bool query_ok) -> cc::result<cc::string>
+        {
+            auto conn = connect_db(conn_ok);
+            CC_RETURN_IF_ERROR(conn).with_context("failed to connect to database");
+
+            auto result = query_db(conn.value(), query_ok);
+            CC_RETURN_IF_ERROR(result).with_context("failed to fetch user");
+
+            return result.value();
+        };
+
+        // Success case
+        auto res1 = fetch_user(true, true);
+        CHECK(res1.has_value());
+        CHECK(res1.value() == "query result");
+
+        // Connection fails
+        auto res2 = fetch_user(false, true);
+        CHECK(res2.has_error());
+        auto err2 = res2.error().to_string();
+        CHECK(err2.contains("connection failed"));
+        CHECK(err2.contains("failed to connect to database"));
+
+        // Query fails
+        auto res3 = fetch_user(true, false);
+        CHECK(res3.has_error());
+        auto err3 = res3.error().to_string();
+        CHECK(err3.contains("query failed"));
+        CHECK(err3.contains("failed to fetch user"));
+    }
+
+    SECTION("file I/O style operations")
+    {
+        auto open_file = [](bool succeed) -> cc::result<int, cc::string> // file handle
+        { return succeed ? cc::result<int, cc::string>{123} : cc::error("file not found"); };
+
+        auto read_file = [](int handle, bool succeed) -> cc::result<cc::string, cc::string>
+        { return succeed ? cc::result<cc::string, cc::string>{"file contents"} : cc::error("read error"); };
+
+        auto parse_json = [](cc::string const& contents, bool succeed) -> cc::result<int, cc::string>
+        { return succeed ? cc::result<int, cc::string>{999} : cc::error("parse error"); };
+
+        auto load_config = [&](bool open_ok, bool read_ok, bool parse_ok) -> cc::result<int, cc::string>
+        {
+            auto handle = open_file(open_ok);
+            CC_RETURN_IF_ERROR(handle);
+
+            auto contents = read_file(handle.value(), read_ok);
+            CC_RETURN_IF_ERROR(contents);
+
+            auto parsed = parse_json(contents.value(), parse_ok);
+            CC_RETURN_IF_ERROR(parsed);
+
+            return parsed.value();
+        };
+
+        // Success
+        auto res1 = load_config(true, true, true);
+        CHECK(res1.has_value());
+        CHECK(res1.value() == 999);
+
+        // Open fails
+        auto res2 = load_config(false, true, true);
+        CHECK(res2.has_error());
+        CHECK(res2.error() == "file not found");
+
+        // Read fails
+        auto res3 = load_config(true, false, true);
+        CHECK(res3.has_error());
+        CHECK(res3.error() == "read error");
+
+        // Parse fails
+        auto res4 = load_config(true, true, false);
+        CHECK(res4.has_error());
+        CHECK(res4.error() == "parse error");
+    }
+
+    SECTION("validation chain")
+    {
+        auto validate_non_empty = [](cc::string const& s) -> cc::result<cc::string, cc::string>
+        { return s.empty() ? cc::error("string is empty") : cc::result<cc::string, cc::string>{s}; };
+
+        auto validate_length = [](cc::string_view s, size_t max_len) -> cc::result<cc::string, cc::string>
+        { return s.size() > max_len ? cc::error("string too long") : cc::result<cc::string, cc::string>{s}; };
+
+        auto validate_username = [&](cc::string const& username) -> cc::result<cc::string, cc::string>
+        {
+            auto r1 = validate_non_empty(username);
+            CC_RETURN_IF_ERROR(r1);
+
+            auto r2 = validate_length(r1.value(), 20);
+            CC_RETURN_IF_ERROR(r2);
+
+            return r2.value();
+        };
+
+        // Valid
+        auto res1 = validate_username("alice");
+        CHECK(res1.has_value());
+        CHECK(res1.value() == "alice");
+
+        // Empty
+        auto res2 = validate_username("");
+        CHECK(res2.has_error());
+        CHECK(res2.error() == "string is empty");
+
+        // Too long
+        auto res3 = validate_username("this_username_is_way_too_long_for_our_system");
+        CHECK(res3.has_error());
+        CHECK(res3.error() == "string too long");
+    }
+}

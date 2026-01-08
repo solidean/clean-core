@@ -33,6 +33,14 @@ public:
     /// Construct from a string message, capturing source location.
     explicit any_error(cc::string message, cc::source_location site = cc::source_location::current());
 
+    /// Construct from another any_error (move), with explicit source location.
+    /// This two-argument overload is used by CC_RETURN_IF_ERROR macro.
+    /// The source location is ignored and the original error's site is preserved.
+    explicit any_error(any_error&& e, cc::source_location site) noexcept : _payload(cc::move(e._payload))
+    {
+        (void)site; // ignored, keeps original error's site
+    }
+
     /// Construct from any error type E, capturing source location.
     /// The error is converted to a debug string representation.
     template <class E>
@@ -103,6 +111,17 @@ public:
     explicit constexpr as_error_t(E const& e, cc::source_location s) : _e(e), _site(s) {}
     explicit constexpr as_error_t(E&& e, cc::source_location s) : _e(cc::move(e)), _site(s) {}
 
+    /// Add context to the error (rvalue version).
+    /// Converts to as_error_t<any_error> with the context attached.
+    /// Only available for rvalue references (you should never store cc::error(...) anyway).
+    /// This enables chaining like: CC_RETURN_IF_ERROR(res).with_context("context")
+    [[nodiscard]] as_error_t<any_error> with_context(cc::string message,
+                                                     cc::source_location context_site = cc::source_location::current()) &&
+    {
+        return as_error_t<any_error>(any_error(cc::move(_e), _site).with_context(cc::move(message), context_site),
+                                     context_site);
+    }
+
 private:
     E _e;
     cc::source_location _site;
@@ -144,12 +163,12 @@ template <class E>
     return as_error_t<std::decay_t<E>>(cc::forward<E>(e), s);
 }
 // NOTE: overload for string literals to prevent decay to char const*
-//       (ensures to_debug_string sees string_view, not char const*)
+//       (ensures to_debug_string sees string, not char const*)
 template <size_t N>
-[[nodiscard]] constexpr as_error_t<cc::string_view> error(char const (&str)[N],
-                                                          cc::source_location s = cc::source_location::current())
+[[nodiscard]] constexpr as_error_t<cc::string> error(char const (&str)[N],
+                                                     cc::source_location s = cc::source_location::current())
 {
-    return as_error_t<cc::string_view>(cc::string_view(str, isize(N - 1)), s);
+    return as_error_t<cc::string>(cc::string(str, isize(N - 1)), s);
 }
 } // namespace cc
 
@@ -513,6 +532,40 @@ private:
         E _e;
     };
 };
+
+// =========================================================================================================
+// CC_RETURN_IF_ERROR - Early return macro for error propagation
+// =========================================================================================================
+
+/// Early return macro for propagating errors from cc::result<T, E>.
+///
+/// Typical usage:
+///   auto res = inner_fn();
+///   CC_RETURN_IF_ERROR(res).with_context("outer context");
+///   // safe: res has value here
+///   return res.value();
+///
+/// When res contains an error, the macro expands to:
+///   if (auto&& _cc_res = (res_); _cc_res.has_error())
+///       return cc::error(cc::move(_cc_res).error()).with_context("outer context");
+///
+/// Properties:
+/// - Evaluates res exactly once
+/// - Allows trailing .with_context("...") chaining on the return statement
+/// - No dynamic allocation
+/// - Works with result<T, E> to result<U, E> propagation (only error is propagated)
+/// - Works with result<T, E> to result<U> (any_error) propagation via implicit conversion
+/// - Not else-safe (standard limitation for chainable early-return macros)
+///
+/// Implementation notes:
+/// - Uses forwarding reference to bind to both lvalues and rvalues
+/// - Moves the error out via cc::move(_cc_res).error() to handle both move-only and copyable errors
+/// - The return type of the containing function must be cc::result<U, F> where F is
+///   constructible from E (including implicit conversion to any_error)
+///
+#define CC_RETURN_IF_ERROR(res_)                      \
+    if (auto&& _cc_res = (res_); _cc_res.has_error()) \
+    return cc::error(cc::move(_cc_res).error())
 
 // =========================================================================================================
 // cc::any_error implementation details
