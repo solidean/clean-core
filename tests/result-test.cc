@@ -1771,3 +1771,242 @@ TEST("result - CC_RETURN_IF_ERROR - real-world patterns")
         CHECK(res3.error() == "string too long");
     }
 }
+
+TEST("result - or_throw - basic usage")
+{
+    SECTION("or_throw with value - returns value by rvalue reference")
+    {
+        auto some_fn = []() -> cc::result<int, int> { return 42; };
+
+        auto val = some_fn().or_throw();
+        CHECK(val == 42);
+    }
+
+    SECTION("or_throw with error - throws exception")
+    {
+        auto some_fn = []() -> cc::result<int, int> { return cc::error(99); };
+
+        CHECK_THROWS(some_fn().or_throw());
+    }
+
+    SECTION("or_throw with value - lvalue reference")
+    {
+        auto some_fn = []() -> cc::result<int, int> { return 42; };
+
+        auto res = some_fn();
+        auto& val = res.or_throw();
+        CHECK(val == 42);
+        CHECK(&val == &res.value());
+    }
+
+    SECTION("or_throw with error - lvalue reference throws")
+    {
+        auto some_fn = []() -> cc::result<int, int> { return cc::error(99); };
+
+        auto res = some_fn();
+        CHECK_THROWS(res.or_throw());
+    }
+
+    SECTION("or_throw returns correct exception type")
+    {
+        auto some_fn = []() -> cc::result<int, int> { return cc::error(99); };
+
+        CHECK_THROWS_AS(some_fn().or_throw(), cc::result_exception);
+    }
+}
+
+TEST("result - or_throw - value categories")
+{
+    SECTION("or_throw on const lvalue result")
+    {
+        auto const res = cc::result<int, int>{42};
+        auto const& val = res.or_throw();
+        CHECK(val == 42);
+        CHECK(&val == &res.value());
+    }
+
+    SECTION("or_throw on mutable lvalue result")
+    {
+        auto res = cc::result<int, int>{42};
+        auto& val = res.or_throw();
+        val = 99;
+        CHECK(res.value() == 99);
+    }
+
+    SECTION("or_throw on rvalue result")
+    {
+        auto res = cc::result<move_only, int>{move_only{42}};
+        auto moved = cc::move(res).or_throw();
+        CHECK(moved.value == 42);
+    }
+
+    SECTION("or_throw on const rvalue result")
+    {
+        auto make_result = []() -> cc::result<int, int> { return 42; };
+        auto const res = make_result();
+        auto const& val = res.or_throw();
+        CHECK(val == 42);
+    }
+}
+
+TEST("result - or_throw - non-trivial types")
+{
+    SECTION("or_throw with string value")
+    {
+        auto some_fn = []() -> cc::result<cc::string, int> { return cc::string{"hello"}; };
+
+        auto val = some_fn().or_throw();
+        CHECK(val == "hello");
+    }
+
+    SECTION("or_throw with string error")
+    {
+        auto some_fn = []() -> cc::result<int, cc::string> { return cc::error(cc::string{"error message"}); };
+
+        CHECK_THROWS(some_fn().or_throw());
+    }
+
+    SECTION("or_throw with move-only type")
+    {
+        auto some_fn = []() -> cc::result<move_only, int> { return move_only{42}; };
+
+        auto val = some_fn().or_throw();
+        CHECK(val.value == 42);
+    }
+
+    SECTION("or_throw with non-trivial value - lvalue reference")
+    {
+        auto res = cc::result<cc::string, int>{cc::string{"test"}};
+        auto& val = res.or_throw();
+        val += " modified";
+        CHECK(res.value() == "test modified");
+    }
+}
+
+TEST("result - or_throw - any_error integration")
+{
+    SECTION("or_throw with any_error - success")
+    {
+        auto some_fn = []() -> cc::result<int> { return 42; };
+
+        auto val = some_fn().or_throw();
+        CHECK(val == 42);
+    }
+
+    SECTION("or_throw with any_error - error from string")
+    {
+        auto some_fn = []() -> cc::result<int> { return cc::error("error message"); };
+
+        CHECK_THROWS_AS(some_fn().or_throw(), cc::result_exception);
+    }
+
+    SECTION("or_throw with any_error - error from int")
+    {
+        auto some_fn = []() -> cc::result<int> { return cc::error(42); };
+
+        CHECK_THROWS_AS(some_fn().or_throw(), cc::result_exception);
+    }
+
+    SECTION("or_throw with any_error - lvalue reference")
+    {
+        auto res = cc::result<int>{42};
+        auto& val = res.or_throw();
+        CHECK(val == 42);
+        CHECK(&val == &res.value());
+    }
+
+    SECTION("or_throw with any_error - lvalue error throws")
+    {
+        auto res = cc::result<int>{cc::error(cc::string{"error message"})};
+        CHECK_THROWS_AS(res.or_throw(), cc::result_exception);
+    }
+}
+
+TEST("result - or_throw - chaining patterns")
+{
+    SECTION("or_throw in expression chain - success")
+    {
+        auto parse_int = [](cc::string const& s) -> cc::result<int, cc::string>
+        {
+            if (s == "42")
+                return 42;
+            return cc::error("parse error");
+        };
+
+        auto process = [&](cc::string const& s) -> int { return parse_int(s).or_throw() * 2; };
+
+        auto result = process("42");
+        CHECK(result == 84);
+    }
+
+    SECTION("or_throw in expression chain - error throws")
+    {
+        auto parse_int = [](cc::string const& s) -> cc::result<int, cc::string>
+        {
+            if (s == "42")
+                return 42;
+            return cc::error("parse error");
+        };
+
+        auto process = [&](cc::string const& s) -> int { return parse_int(s).or_throw() * 2; };
+
+        CHECK_THROWS(process("invalid"));
+    }
+
+    SECTION("multiple or_throw in sequence - all success")
+    {
+        auto fn1 = []() -> cc::result<int, int> { return 10; };
+        auto fn2 = []() -> cc::result<int, int> { return 20; };
+        auto fn3 = []() -> cc::result<int, int> { return 30; };
+
+        auto compute = [&]() -> int { return fn1().or_throw() + fn2().or_throw() + fn3().or_throw(); };
+
+        auto result = compute();
+        CHECK(result == 60);
+    }
+
+    SECTION("multiple or_throw in sequence - middle fails")
+    {
+        auto fn1 = []() -> cc::result<int, int> { return 10; };
+        auto fn2 = []() -> cc::result<int, int> { return cc::error(99); };
+        auto fn3 = []() -> cc::result<int, int> { return 30; };
+
+        auto compute = [&]() -> int { return fn1().or_throw() + fn2().or_throw() + fn3().or_throw(); };
+
+        CHECK_THROWS(compute());
+    }
+}
+
+TEST("result - or_throw - const correctness")
+{
+    SECTION("const result returns const reference")
+    {
+        auto const res = cc::result<int, int>{42};
+        static_assert(std::is_same_v<decltype(res.or_throw()), int const&>);
+        auto const& val = res.or_throw();
+        CHECK(val == 42);
+    }
+
+    SECTION("mutable result returns mutable reference")
+    {
+        auto res = cc::result<int, int>{42};
+        static_assert(std::is_same_v<decltype(res.or_throw()), int&>);
+        auto& val = res.or_throw();
+        val = 99;
+        CHECK(res.value() == 99);
+    }
+
+    SECTION("rvalue result returns rvalue reference")
+    {
+        auto res = cc::result<int, int>{42};
+        static_assert(std::is_same_v<decltype(cc::move(res).or_throw()), int&&>);
+        SUCCEED("static checks");
+    }
+
+    SECTION("const rvalue result returns const rvalue reference")
+    {
+        auto const res = cc::result<int, int>{42};
+        static_assert(std::is_same_v<decltype(cc::move(res).or_throw()), int const&&>);
+        SUCCEED("static checks");
+    }
+}

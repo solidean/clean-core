@@ -456,9 +456,7 @@ public:
         // Add context if E is any_error to track the conversion point
         if constexpr (std::is_same_v<E, any_error>)
         {
-            auto err = static_cast<decltype(self)&&>(self)._e;
-            err.with_context("converted error result to exception", site);
-            throw Exception::from_error(cc::move(err));
+            throw Exception::from_error(cc::move(self._e).with_context("converted error result to exception", site));
         }
         else
         {
