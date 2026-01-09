@@ -173,6 +173,33 @@ template <size_t N>
 } // namespace cc
 
 // =========================================================================================================
+// cc::result_exception - Exception type for or_throw()
+// =========================================================================================================
+
+/// Exception type thrown by result::or_throw() when converting an error to an exception.
+/// Stores the error as cc::any_error to support any error type E via type erasure.
+struct cc::result_exception
+{
+public:
+    /// Construct from any error type E via type erasure.
+    template <class E>
+    [[nodiscard]] static result_exception from_error(E&& e)
+    {
+        return result_exception(cc::any_error(cc::forward<E>(e)));
+    }
+
+    /// Get the underlying error.
+    [[nodiscard]] cc::any_error const& error() const& { return _error; }
+    [[nodiscard]] cc::any_error& error() & { return _error; }
+    [[nodiscard]] cc::any_error&& error() && { return cc::move(_error); }
+
+private:
+    explicit result_exception(cc::any_error&& e) : _error(cc::move(e)) {}
+
+    cc::any_error _error;
+};
+
+// =========================================================================================================
 // cc::result<T, E> - Tagged union representing success or failure
 // =========================================================================================================
 
@@ -415,6 +442,28 @@ public:
     {
         CC_ASSERTS_ALWAYS(!self._has_value, msg);
         return static_cast<decltype(self)&&>(self)._e;
+    }
+
+    /// Returns the contained value if present, otherwise throws an exception.
+    /// If E is any_error, adds context before creating the exception to track the conversion point.
+    /// Uses deducing this (C++23) to forward lvalue/rvalue/const qualifiers.
+    template <class Exception = cc::result_exception>
+    [[nodiscard]] constexpr auto&& or_throw(this auto&& self, cc::source_location site = cc::source_location::current())
+    {
+        if (self._has_value)
+            return static_cast<decltype(self)&&>(self)._v;
+
+        // Add context if E is any_error to track the conversion point
+        if constexpr (std::is_same_v<E, any_error>)
+        {
+            auto err = static_cast<decltype(self)&&>(self)._e;
+            err.with_context("converted error result to exception", site);
+            throw Exception::from_error(cc::move(err));
+        }
+        else
+        {
+            throw Exception::from_error(static_cast<decltype(self)&&>(self)._e);
+        }
     }
 
     // mutation

@@ -171,6 +171,7 @@ struct nullopt_t;
 template <class T>
 struct optional;
 
+struct result_exception;
 struct any_error;
 template <class E>
 struct as_error_t;
