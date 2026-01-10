@@ -67,29 +67,6 @@ void swap(AdlSwappable& a, AdlSwappable& b) noexcept
 }
 } // namespace test_ns
 
-// Helper macro to test that expressions trigger assertions
-#define CHECK_ASSERTS(expr)                                    \
-    do                                                         \
-    {                                                          \
-        bool assertion_triggered = false;                      \
-        {                                                      \
-            auto handler = cc::impl::scoped_assertion_handler( \
-                [&](cc::impl::assertion_info const&)           \
-                {                                              \
-                    assertion_triggered = true;                \
-                    throw 0;                                   \
-                });                                            \
-            try                                                \
-            {                                                  \
-                (void)(expr);                                  \
-            }                                                  \
-            catch (int)                                        \
-            {                                                  \
-            }                                                  \
-        }                                                      \
-        CHECK(assertion_triggered);                            \
-    } while (false)
-
 // =========================================================================================================
 // Move semantics tests
 // =========================================================================================================
