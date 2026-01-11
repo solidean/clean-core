@@ -152,6 +152,9 @@ struct bitset;
 template <isize N>
 struct fixed_bitset;
 
+template <class RangeT>
+struct sequence;
+
 
 //
 // Functions
