@@ -4,6 +4,7 @@
 #include <clean-core/fwd.hh>
 
 #include <cstring>
+#include <initializer_list>
 #include <type_traits>
 
 // =========================================================================================================
@@ -18,6 +19,8 @@
 // Comparison and clamping:
 //   max(a, b)                   - returns the larger of two values (requires operator<)
 //   min(a, b)                   - returns the smaller of two values (requires operator<)
+//   max({a, b, c, ...})         - returns the largest value in initializer list (requires operator<)
+//   min({a, b, c, ...})         - returns the smallest value in initializer list (requires operator<)
 //   clamp(v, lo, hi)            - clamps value v to range [lo, hi] (requires operator<)
 //
 // Wrapping arithmetic:
@@ -156,6 +159,46 @@ template <class T>
 {
     static_assert(requires { a < b; }, "T must support operator<");
     return (b < a) ? b : a; // NOLINT(bugprone-return-const-ref-from-parameter) - returning reference is intentional
+}
+
+/// Returns the largest value in an initializer list using operator<
+/// Returns a copy (not a reference) since the initializer list is temporary
+/// Usage:
+///   int largest = cc::max({3, 7, 2, 9, 1});  // returns 9
+///   auto val = cc::max({x, y, z});           // returns largest of three values
+template <class T>
+[[nodiscard]] constexpr T max(std::initializer_list<T> ilist)
+{
+    static_assert(requires { *ilist.begin() < *ilist.begin(); }, "T must support operator<");
+    CC_ASSERT(ilist.size() > 0, "max: initializer list must not be empty");
+    auto it = ilist.begin();
+    T result = *it++;
+    for (; it != ilist.end(); ++it)
+    {
+        if (result < *it)
+            result = *it;
+    }
+    return result;
+}
+
+/// Returns the smallest value in an initializer list using operator<
+/// Returns a copy (not a reference) since the initializer list is temporary
+/// Usage:
+///   int smallest = cc::min({3, 7, 2, 9, 1});  // returns 1
+///   auto val = cc::min({x, y, z});            // returns smallest of three values
+template <class T>
+[[nodiscard]] constexpr T min(std::initializer_list<T> ilist)
+{
+    static_assert(requires { *ilist.begin() < *ilist.begin(); }, "T must support operator<");
+    CC_ASSERT(ilist.size() > 0, "min: initializer list must not be empty");
+    auto it = ilist.begin();
+    T result = *it++;
+    for (; it != ilist.end(); ++it)
+    {
+        if (*it < result)
+            result = *it;
+    }
+    return result;
 }
 
 /// Clamps a value to the range [lo, hi]

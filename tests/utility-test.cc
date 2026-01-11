@@ -198,6 +198,99 @@ TEST("utility - max/min return references and handle equality")
     }
 }
 
+TEST("utility - max/min initializer list returns value")
+{
+    SECTION("max with integers")
+    {
+        int result = cc::max({3, 7, 2, 9, 1});
+        CHECK(result == 9);
+    }
+
+    SECTION("max with three values")
+    {
+        CHECK(cc::max({10, 20, 15}) == 20);
+    }
+
+    SECTION("max with single value")
+    {
+        CHECK(cc::max({42}) == 42);
+    }
+
+    SECTION("max with duplicates")
+    {
+        CHECK(cc::max({5, 9, 9, 3, 9, 1}) == 9);
+    }
+
+    SECTION("max with all equal")
+    {
+        CHECK(cc::max({7, 7, 7, 7}) == 7);
+    }
+
+    SECTION("min with integers")
+    {
+        int result = cc::min({3, 7, 2, 9, 1});
+        CHECK(result == 1);
+    }
+
+    SECTION("min with three values")
+    {
+        CHECK(cc::min({10, 20, 15}) == 10);
+    }
+
+    SECTION("min with single value")
+    {
+        CHECK(cc::min({42}) == 42);
+    }
+
+    SECTION("min with duplicates")
+    {
+        CHECK(cc::min({5, 2, 9, 3, 2, 1}) == 1);
+    }
+
+    SECTION("min with all equal")
+    {
+        CHECK(cc::min({7, 7, 7, 7}) == 7);
+    }
+
+    SECTION("max with floats")
+    {
+        CHECK(cc::max({1.5f, 3.7f, 2.1f}) == 3.7f);
+    }
+
+    SECTION("min with floats")
+    {
+        CHECK(cc::min({1.5f, 3.7f, 2.1f}) == 1.5f);
+    }
+
+    SECTION("max with Box type")
+    {
+        Box result = cc::max({Box{10}, Box{30}, Box{20}});
+        CHECK(result.v == 30);
+    }
+
+    SECTION("min with Box type")
+    {
+        Box result = cc::min({Box{10}, Box{30}, Box{20}});
+        CHECK(result.v == 10);
+    }
+
+    SECTION("max with negative values")
+    {
+        CHECK(cc::max({-5, -1, -10, -3}) == -1);
+    }
+
+    SECTION("min with negative values")
+    {
+        CHECK(cc::min({-5, -1, -10, -3}) == -10);
+    }
+
+    SECTION("empty list triggers assertion")
+    {
+        CHECK_ASSERTS(cc::max(std::initializer_list<int>{}));
+        CHECK_ASSERTS(cc::min(std::initializer_list<int>{}));
+    }
+}
+
 TEST("utility - clamp returns correct reference")
 {
     SECTION("value in middle")
