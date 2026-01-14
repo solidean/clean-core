@@ -4,6 +4,8 @@
 #include <clean-core/fwd.hh>
 #include <clean-core/utility.hh>
 
+#include <initializer_list>
+
 // -----------------------------------------------------------------------------
 // cc::sequence reduction & lifetime model – condensed design summary
 // -----------------------------------------------------------------------------
@@ -85,6 +87,16 @@
 //     - trait propagation must be conservative
 //     - materialize() exists for users who want ownership & safety
 
+// tri-state result of a try_fold_first operation
+enum class sequence_fold_result
+{
+    // sequence is empty
+    empty,
+    // step function returned true, fold was stopped
+    stopped,
+    // step function never returned true, sequence was fully traversed
+    completed,
+};
 
 // a lazy eval-at-most-once forward cursor abstraction
 // with powerful functional compositions
@@ -134,6 +146,19 @@ public:
     // fold, sum, min, max, any
     // but also find/count/index_of/first/last
 
+    [[nodiscard]] isize count()
+    {
+        return this->accumulate(isize(0), [](isize& cnt, auto&) { ++cnt; });
+    }
+
+    // TODO: name?
+    // apply : (idx?, accum&, elem&)
+    [[nodiscard]] auto accumulate(auto init, auto&& apply)
+    {
+        this->try_fold([&](isize idx, auto& elem) { cc::invoke_with_optional_idx(idx, apply, init, elem); });
+        return init;
+    }
+
     //
     // transformations
     // (structure-preserving, lazy)
@@ -147,6 +172,89 @@ public:
     //
 public:
     // to_array/vector, collect, append_to, ...
+
+    //
+    // operational basis
+    // i.e. most functions are implemented in terms of these
+    //      and we can apply sequence-trait-based optimizations here uniformly
+    //
+public:
+    // the basis of almost all reductions
+    // uses init(idx, elem&, bool&) -> State / State& to initialize state
+    // then uses step(idx, state&, elem&) -> bool/void to advance
+    // if init or step return true, the fold returns with "stopped"
+    // if the wrapped range is empty, we return "empty"
+    // if we exhausted the range without encountered "true", we return "completed"
+    // delegates to range try_fold_first if available
+    // otherwise uses external iteration for that
+    sequence_fold_result try_fold_first(auto&& init, auto&& step)
+    {
+        // TODO:
+        // if range supports try_fold_first, use that directly
+
+        // fallback based on external iteration
+        auto it = cc::begin(_range);
+        auto const end = cc::end(_range);
+
+        if (it == end)
+            return sequence_fold_result::empty;
+
+        // TODO:
+        // do we really want state here?
+        // if init & step return bool/void, we avoid weird out params or pair returns
+        // I dunno about the codegen quality in every case ...
+
+        bool stop_at_first = false;
+        isize idx = 0;
+        auto&& state = cc::regular_invoke_with_optional_idx(idx, init, *it, stop_at_first);
+        if (stop_at_first)
+            return sequence_fold_result::stopped;
+
+        it++;
+
+        while (it != end)
+        {
+            idx++;
+
+            auto res = cc::regular_invoke_with_optional_idx(idx, step, state, *it);
+            if constexpr (!std::is_same_v<decltype(res), cc::unit>)
+                if (res)
+                    return sequence_fold_result::stopped;
+
+            it++;
+        }
+
+        return sequence_fold_result::completed;
+    }
+    // same as try_fold_first but without init and without state
+    // state must be tracked outside basically
+    sequence_fold_result try_fold(auto&& step)
+    {
+        // TODO:
+        // if range supports try_fold, use that directly
+
+        // fallback based on external iteration
+        auto it = cc::begin(_range);
+        auto const end = cc::end(_range);
+
+        if (it == end)
+            return sequence_fold_result::empty;
+
+        isize idx = 0;
+
+        while (it != end)
+        {
+            auto res = cc::regular_invoke_with_optional_idx(idx, step, *it);
+            if constexpr (!std::is_same_v<decltype(res), cc::unit>)
+                if (res)
+                    return sequence_fold_result::stopped;
+
+            idx++;
+            it++;
+        }
+
+        return sequence_fold_result::completed;
+    }
 
     //
     // ctors, fringe api

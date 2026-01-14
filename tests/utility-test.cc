@@ -1172,3 +1172,147 @@ TEST("utility - sentinel as end-of-range marker")
         CHECK(sum == 60);
     }
 }
+
+TEST("utility - begin/end with containers")
+{
+    SECTION("mutable container")
+    {
+        struct simple_container
+        {
+            int data[3] = {1, 2, 3};
+            int* begin() { return data; }
+            int* end() { return data + 3; }
+        };
+
+        simple_container c;
+        CHECK(cc::begin(c) == c.data);
+        CHECK(cc::end(c) == c.data + 3);
+
+        // can modify through begin
+        *cc::begin(c) = 10;
+        CHECK(c.data[0] == 10);
+    }
+
+    SECTION("const container")
+    {
+        struct simple_container
+        {
+            int data[3] = {1, 2, 3};
+            int const* begin() const { return data; }
+            int const* end() const { return data + 3; }
+        };
+
+        simple_container const c{};
+        CHECK(cc::begin(c) == c.data);
+        CHECK(cc::end(c) == c.data + 3);
+    }
+
+    SECTION("container with both const and non-const")
+    {
+        struct dual_container
+        {
+            int data[3] = {1, 2, 3};
+            int* begin() { return data; }
+            int* end() { return data + 3; }
+            int const* begin() const { return data; }
+            int const* end() const { return data + 3; }
+        };
+
+        dual_container c;
+        dual_container const& cc_ref = c;
+
+        // non-const version
+        static_assert(std::is_same_v<decltype(cc::begin(c)), int*>);
+        static_assert(std::is_same_v<decltype(cc::end(c)), int*>);
+
+        // const version
+        static_assert(std::is_same_v<decltype(cc::begin(cc_ref)), int const*>);
+        static_assert(std::is_same_v<decltype(cc::end(cc_ref)), int const*>);
+
+        SUCCEED();
+    }
+}
+
+TEST("utility - begin/end with C-style arrays")
+{
+    SECTION("int array")
+    {
+        int arr[5] = {1, 2, 3, 4, 5};
+
+        CHECK(cc::begin(arr) == &arr[0]);
+        CHECK(cc::end(arr) == &arr[0] + 5);
+        CHECK(cc::end(arr) - cc::begin(arr) == 5);
+
+        // can modify through begin
+        *cc::begin(arr) = 100;
+        CHECK(arr[0] == 100);
+    }
+
+    SECTION("const array")
+    {
+        int const arr[3] = {10, 20, 30};
+
+        CHECK(cc::begin(arr) == &arr[0]);
+        CHECK(cc::end(arr) == &arr[0] + 3);
+
+        static_assert(std::is_same_v<decltype(cc::begin(arr)), int const*>);
+        static_assert(std::is_same_v<decltype(cc::end(arr)), int const*>);
+    }
+
+    SECTION("char array")
+    {
+        char arr[4] = {'a', 'b', 'c', 'd'};
+
+        CHECK(cc::begin(arr) == &arr[0]);
+        CHECK(cc::end(arr) == &arr[0] + 4);
+        CHECK(*cc::begin(arr) == 'a');
+        CHECK(*(cc::end(arr) - 1) == 'd');
+    }
+
+    SECTION("single element array")
+    {
+        int arr[1] = {42};
+
+        CHECK(cc::begin(arr) == &arr[0]);
+        CHECK(cc::end(arr) == &arr[0] + 1);
+        CHECK(cc::end(arr) - cc::begin(arr) == 1);
+    }
+
+    SECTION("iterate with begin/end")
+    {
+        int arr[4] = {1, 2, 3, 4};
+        int sum = 0;
+
+        for (int* it = cc::begin(arr); it != cc::end(arr); ++it)
+        {
+            sum += *it;
+        }
+
+        CHECK(sum == 10);
+    }
+}
+
+TEST("utility - begin/end constexpr")
+{
+    SECTION("constexpr container begin/end")
+    {
+        struct constexpr_container
+        {
+            int value = 42;
+            constexpr int const* begin() const { return &value; }
+            constexpr int const* end() const { return &value + 1; }
+        };
+
+        // verify cc::begin/end are constexpr-callable
+        constexpr auto test = []() constexpr
+        {
+            constexpr_container c{};
+            auto b = cc::begin(c);
+            auto e = cc::end(c);
+            return e - b;
+        }();
+
+        static_assert(test == 1);
+        SUCCEED();
+    }
+}

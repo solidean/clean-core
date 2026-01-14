@@ -71,6 +71,7 @@
 //
 // Iterator utilities:
 //   sentinel                         - lightweight end-of-range sentinel type
+//   begin(c) / end(c)                - get begin/end iterators from container or array
 //
 
 // TODO
@@ -935,6 +936,72 @@ deferred<F> operator+(deferred_tag, F&& f)
 struct sentinel
 {
 };
+
+/// Get begin iterator from container (mutable version)
+/// Calls c.begin() on any container that provides it
+/// Usage:
+///   std::vector<int> v = {1, 2, 3};
+///   auto it = cc::begin(v);  // equivalent to v.begin()
+template <class C>
+[[nodiscard]] constexpr auto begin(C& c) -> decltype(c.begin())
+{
+    return c.begin();
+}
+
+/// Get begin iterator from container (const version)
+/// Calls c.begin() on any const container that provides it
+/// Usage:
+///   std::vector<int> const& v = ...;
+///   auto it = cc::begin(v);  // equivalent to v.begin()
+template <class C>
+[[nodiscard]] constexpr auto begin(C const& c) -> decltype(c.begin())
+{
+    return c.begin();
+}
+
+/// Get begin iterator from C-style array
+/// Returns pointer to first element
+/// Usage:
+///   int arr[5] = {1, 2, 3, 4, 5};
+///   int* it = cc::begin(arr);  // points to arr[0]
+template <class T, size_t N>
+[[nodiscard]] constexpr T* begin(T (&array)[N]) noexcept
+{
+    return array;
+}
+
+/// Get end iterator from container (mutable version)
+/// Calls c.end() on any container that provides it
+/// Usage:
+///   std::vector<int> v = {1, 2, 3};
+///   auto it = cc::end(v);  // equivalent to v.end()
+template <class C>
+[[nodiscard]] constexpr auto end(C& c) -> decltype(c.end())
+{
+    return c.end();
+}
+
+/// Get end iterator from container (const version)
+/// Calls c.end() on any const container that provides it
+/// Usage:
+///   std::vector<int> const& v = ...;
+///   auto it = cc::end(v);  // equivalent to v.end()
+template <class C>
+[[nodiscard]] constexpr auto end(C const& c) -> decltype(c.end())
+{
+    return c.end();
+}
+
+/// Get end iterator from C-style array
+/// Returns pointer past last element
+/// Usage:
+///   int arr[5] = {1, 2, 3, 4, 5};
+///   int* it = cc::end(arr);  // points one past arr[4]
+template <class T, size_t N>
+[[nodiscard]] constexpr T* end(T (&array)[N]) noexcept
+{
+    return array + N;
+}
 
 } // namespace cc
 
