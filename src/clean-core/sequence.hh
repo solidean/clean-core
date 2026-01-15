@@ -158,6 +158,17 @@ public:
     // this is purely a result of the range iterator handing out values or references
     static constexpr bool has_stable_elements = std::is_reference_v<decltype(*cc::begin(_range))>;
 
+    // has_known_size
+    // has_known_size_constexpr
+    // has_min_size
+    // has_min_size_constexpr
+    // has_max_size
+    // has_max_size_constexpr
+    // can_be_infinite
+    // can_be_finite (can be asserted to be true in the collectors)
+    // is indexable
+    // ...
+
     //
     // reductions
     // (structure-consuming, value-producing)
@@ -271,6 +282,9 @@ public:
 public:
     // map, filter, take, drop, flatten, zip, ...
 
+    // repeat, repeat(isize), ...
+    // -> survives indexability, can compute sizes, ...
+
     //
     // materialization
     // (structure-destroying, terminal)
@@ -375,3 +389,10 @@ public:
     sequence& operator=(sequence const&) = delete;
     ~sequence() = default;
 };
+
+// factories:
+// make_sequence(container)
+// make_sequence(init-list)
+// make_sequence_from_element(value) -> or other name
+// make_sequence_from_generator(...) -> or other name
+// (coroutine adapter)
