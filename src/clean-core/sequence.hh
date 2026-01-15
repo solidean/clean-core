@@ -2,6 +2,7 @@
 
 #include <clean-core/assert.hh>
 #include <clean-core/fwd.hh>
+#include <clean-core/optional.hh>
 #include <clean-core/utility.hh>
 
 #include <initializer_list>
@@ -139,6 +140,25 @@ private:
     RangeT _range;
 
     //
+    // traits & typedefs
+    //
+public:
+    // value type for the elements
+    // e.g. "vector<int>" -> int
+    //      "vector<bool> const" -> bool
+    using element_t = std::remove_cvref_t<decltype(*cc::begin(_range))>;
+
+    // pointer to the element
+    // NOTE: preserves constness
+    // e.g. "vector<int>" -> int*
+    //      "vector<bool> const" -> bool const*
+    using element_ptr_t = std::add_pointer_t<decltype(*cc::begin(_range))>;
+
+    // true iff we can assume that pointers to our elements stay valid until the end of the expression or borrow
+    // this is purely a result of the range iterator handing out values or references
+    static constexpr bool has_stable_elements = std::is_reference_v<decltype(*cc::begin(_range))>;
+
+    //
     // reductions
     // (structure-consuming, value-producing)
     //
@@ -148,7 +168,70 @@ public:
 
     [[nodiscard]] isize count()
     {
-        return this->accumulate(isize(0), [](isize& cnt, auto&) { ++cnt; });
+        return this->accumulate( //
+            isize(0),            //
+            [](isize& cnt, auto&) { ++cnt; });
+    }
+
+    [[nodiscard]] isize count_if(auto&& predicate)
+    {
+        return this->accumulate( //
+            isize(0),
+            [&predicate](isize idx, isize& cnt, auto& elem)
+            {
+                if (cc::regular_invoke_with_optional_idx(idx, predicate, elem))
+                    ++cnt;
+            });
+    }
+
+    [[nodiscard]] bool any(auto&& predicate)
+    {
+        return this->try_fold([&](isize idx, auto& elem)
+                              { return bool(cc::regular_invoke_with_optional_idx(idx, predicate, elem)); })
+            == sequence_fold_result::stopped; // stopped => we found one with "true", so any is true
+    }
+
+    [[nodiscard]] bool all(auto&& predicate)
+    {
+        return this->try_fold([&](isize idx, auto& elem)
+                              { return !bool(cc::regular_invoke_with_optional_idx(idx, predicate, elem)); })
+            != sequence_fold_result::stopped; // stopped => we found one with "false", so all is false
+    }
+
+    [[nodiscard]] cc::optional<isize> index_of(auto&& predicate)
+    {
+        cc::optional<isize> result;
+        this->try_fold(
+            [&](isize idx, auto& elem)
+            {
+                if (cc::regular_invoke_with_optional_idx(idx, predicate, elem))
+                {
+                    result = idx;
+                    return true; // stop
+                }
+                else
+                    return false;
+            });
+        return result;
+    }
+
+    [[nodiscard]] element_ptr_t find(auto&& predicate)
+    {
+        static_assert(sequence::has_stable_elements, ".find is only valid if we have stable elements");
+
+        element_t* result = nullptr;
+        this->try_fold(
+            [&](isize idx, auto& elem)
+            {
+                if (cc::regular_invoke_with_optional_idx(idx, predicate, elem))
+                {
+                    result = &elem;
+                    return true; // stop
+                }
+                else
+                    return false;
+            });
+        return result;
     }
 
     // TODO: name?
@@ -158,6 +241,28 @@ public:
         this->try_fold([&](isize idx, auto& elem) { cc::invoke_with_optional_idx(idx, apply, init, elem); });
         return init;
     }
+
+    //
+    // reductions that need special emptiness handling
+    //
+
+    [[nodiscard]] isize sum()
+    {
+        // TODO: needs non-empty handling
+        // return this->accumulate( //
+        //     isize(0),            //
+        //     [](isize& cnt, auto&) { ++cnt; });
+    }
+
+    // min / min_by / min_into / min_by_into / min_ptr / min_or
+    // max / ...
+    // sum / ...
+    // product / ...
+    // minmax / ...
+
+    // average / means / ...
+    // variance / moment / ...
+    // -> whole moment stat package + min + max?
 
     //
     // transformations
@@ -228,6 +333,7 @@ public:
     }
     // same as try_fold_first but without init and without state
     // state must be tracked outside basically
+    // if step returns true, we early-out of the fold
     sequence_fold_result try_fold(auto&& step)
     {
         // TODO:
