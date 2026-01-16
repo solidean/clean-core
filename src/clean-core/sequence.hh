@@ -132,6 +132,34 @@ enum class sequence_fold_result
 //   all ".last_xyz" are basically just .reversed().xyz()
 // - has_stable_elements traits (propagates, means T& and T* are fine, map propagates iff ref-returning)
 // - min returns T& for stable, T for non-stable (means auto/auto&/auto const&/auto&& works well)
+//
+// Internal vs external iteration
+//
+// Every wrapped range must support *external* iteration (begin/end).
+// This is the universal composition model: it chains indefinitely and
+// works across arbitrary adaptors (zip, filter, map, …).
+//
+// However, for many non-trivial ranges (trees, concatenations, flattened
+// views, adaptor stacks), the iterator model becomes awkward and often
+// inhibits inlining and optimization.
+//
+// *Internal* iteration flips control flow: the range owns the loop and
+// invokes a callback instead of yielding iterators. This matches how such
+// data structures are naturally implemented and typically maps much more
+// directly to optimal codegen.
+//
+// Most sequence operations are implemented in terms of internal iteration
+// (fold-style). These internal layers compose well and are easier for the
+// compiler to inline and collapse than deeply nested iterator machinery.
+//
+// Rule of thumb:
+// if an “internal iteration” is just
+//
+//     for (auto&& v : *this) callback(v);
+//
+// then it buys nothing: it is equivalent to external iteration.
+// Internal iteration is only worthwhile if the range can do something
+// structurally simpler or more direct than the iterator model.
 template <class RangeT>
 struct cc::sequence
 {
@@ -168,6 +196,7 @@ public:
     // can_be_finite (can be asserted to be true in the collectors)
     // is indexable
     // ...
+    // can_revisit_elements (repeat, windowed, ...)
 
     //
     // reductions
@@ -253,6 +282,13 @@ public:
         return init;
     }
 
+    // calls fun on each element (optional with index first)
+    void each(auto&& fun)
+    {
+        // TODO: preserve value category of elem, aka forward!
+        this->try_fold([&](isize idx, auto& elem) { cc::invoke_with_optional_idx(idx, fun, elem); });
+    }
+
     //
     // reductions that need special emptiness handling
     //
@@ -288,9 +324,54 @@ public:
     //
     // materialization
     // (structure-destroying, terminal)
+    // - produce containers (to_vector / to_array / to_container)
+    // - write into outputs (push_to / append_to / write_to / collect_into)
     //
 public:
     // to_array/vector, collect, append_to, ...
+
+    template <class ContainerT>
+    [[nodiscard]] ContainerT to_container()
+    {
+        static_assert(sizeof(ContainerT) > 0, "ContainerT must be complete (did you forget to include its header?)");
+
+        ContainerT container;
+        // TODO: use a container protocol to make "push_back" more generic
+        //       and try to reserve
+        // TODO: ensure we move if we have an expiring range
+        this->each([&]<class T>(T&& elem) { container.push_back(cc::forward<T>(elem)); });
+        return container;
+    }
+
+    template <class ContainerT>
+    [[nodiscard]] ContainerT to_container(auto&& map)
+    {
+        static_assert(sizeof(ContainerT) > 0, "ContainerT must be complete (did you forget to include its header?)");
+
+        ContainerT container;
+        // TODO: use a container protocol to make "push_back" more generic
+        //       and try to reserve
+        // TODO: ensure we move if we have an expiring range
+        this->each([&]<class T>(isize idx, T&& elem)
+                   { container.push_back(cc::invoke_with_optional_idx(idx, map, cc::forward<T>(elem))); });
+        return container;
+    }
+
+    [[nodiscard]] auto to_vector() { return this->to_container<cc::vector<element_t>>(); }
+    
+    [[nodiscard]] auto to_array()
+    {
+        // TODO: static assert has_known_size
+        return;
+    }
+
+    void push_to(auto& container)
+    {
+        // TODO: use a container protocol to make "push_back" more generic
+        //       and try to reserve
+        // TODO: ensure we move if we have an expiring range
+        this->each([&]<class T>(T&& elem) { container.push_back(cc::forward<T>(elem)); });
+    }
 
     //
     // operational basis
